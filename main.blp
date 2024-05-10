@@ -1,0 +1,63 @@
+using Gtk 4.0;
+using Adw 1;
+
+Box main {
+  orientation: vertical;
+  halign: center;
+  margin-top: 24;
+  margin-bottom: 24;
+
+  Label {
+    label: _("Time Tracker");
+
+    styles [
+      "title-1"
+    ]
+  }
+
+  Box controls {
+    orientation: horizontal;
+    valign: center;
+    halign: center;
+    margin-top: 24;
+    spacing: 18;
+
+    Button startbutton {
+      label: _("Start");
+    }
+
+    Button {
+      Adw.ButtonContent {
+        label: _("New");
+        icon-name: "list-add-symbolic";
+      }
+    }
+
+    DropDown projectlist {
+      enable-search: true;
+
+      model: StringList {};
+    }
+
+    Button {
+      Adw.ButtonContent {
+        icon-name: "list-add-symbolic";
+      }
+    }
+  }
+
+  Box log {
+    orientation: vertical;
+    margin-top: 24;
+    margin-bottom: 24;
+
+    Label status {
+      label: _("Time: stopped");
+      margin-bottom: 24;
+    }
+
+    Label logbox {
+      label: _("");
+    }
+  }
+}
