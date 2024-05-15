@@ -7,11 +7,11 @@ Box main {
   margin-top: 24;
   margin-bottom: 24;
 
-  Label {
-    label: _("Time Tracker");
+  Label status {
+    label: _('0h 0m 0s');
 
     styles [
-      "title-1"
+      "title-1",
     ]
   }
 
@@ -20,44 +20,73 @@ Box main {
     valign: center;
     halign: center;
     margin-top: 24;
+    margin-bottom: 24;
     spacing: 18;
 
     Button startbutton {
-      label: _("Start");
+      label: _('Start');
     }
 
-    Button {
-      Adw.ButtonContent {
-        label: _("New");
-        icon-name: "list-add-symbolic";
+    Box {
+      styles [
+        "linked"
+      ]
+
+      DropDown projectlist {
+        enable-search: true;
+
+        model: StringList {};
       }
-    }
 
-    DropDown projectlist {
-      enable-search: true;
-
-      model: StringList {};
-    }
-
-    Button {
-      Adw.ButtonContent {
-        icon-name: "list-add-symbolic";
+      Button editproject {
+        icon-name: "document-edit-symbolic";
+        tooltip-text: _("Edit Item");
       }
     }
   }
 
-  Box log {
-    orientation: vertical;
-    margin-top: 24;
-    margin-bottom: 24;
+  Box {
+    halign: center;
+    margin-bottom: 12;
 
-    Label status {
-      label: _("Time: stopped");
-      margin-bottom: 24;
+    styles [
+      "linked"
+    ]
+
+    SearchEntry search_entry {
+      placeholder-text: _("Search items");
     }
 
-    Label logbox {
-      label: _("");
+    Button add {
+      icon-name: "list-add-symbolic";
+      tooltip-text: _("Add Item");
     }
+
+    Button edit {
+      icon-name: "document-edit-symbolic";
+      tooltip-text: _("Edit Item");
+      sensitive: false;
+    }
+
+    Button remove {
+      icon-name: "list-remove-symbolic";
+      tooltip-text: _("Remove Item");
+      sensitive: false;
+    }
+  }
+
+  Label totallabel {
+    margin-bottom: 6;
+  }
+
+  ListBox list_box_editable {
+    hexpand: true;
+    valign: start;
+    activate-on-single-click: true;
+    selection-mode: single;
+
+    styles [
+      "boxed-list"
+    ]
   }
 }
