@@ -1,4 +1,4 @@
-Note: not all this functionality is here yet, since Time Tracker is still in alpha.
+# time-tracker
 
 A simple time-tracker program for GNOME. Time Tracker allows you to
 - Track different projects

@@ -1,0 +1,6 @@
+data/com.lynnmichaelmartin.TimeTracker.desktop.in
+data/com.lynnmichaelmartin.TimeTracker.metainfo.xml.in
+data/com.lynnmichaelmartin.TimeTracker.gschema.xml
+src/main.js
+src/window.js
+src/window.ui

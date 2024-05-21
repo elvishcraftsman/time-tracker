@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Time Tracker
+Exec=com.lynnmichaelmartin.TimeTracker
+Icon=com.lynnmichaelmartin.TimeTracker.svg
+Terminal=false
+Type=Application
+Categories=GTK;
+StartupNotify=true
