@@ -1109,7 +1109,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (entry.end === null) {
         if (latestStartDate === null || entry.start > latestStartDate) {
           latestStartDate = entry.start;
-          latestStartIndex = index;
+          latestStartIndex = i;
           latestStartProject = entry.project;
         }
       }
