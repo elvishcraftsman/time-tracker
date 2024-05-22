@@ -220,7 +220,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Connecting the "Test New Feature" button with the proper function
     const testAction = new Gio.SimpleAction({name: 'test'});
-    testAction.connect('activate', () => this.datedialog());
+    testAction.connect('activate', () => {
+      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker/backup.csv']);
+      this.writelog(filepath);
+    });
     this.add_action(testAction);
 
     // Connecting the edit project button with the proper function
@@ -314,7 +317,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Convert the log array into CSV format
-  async writelog() {
+  async writelog(filepath = logpath) {
     let entriesString = "Project,Start Time,End Time\n";
 
     for (let i = 0; i < entries.length; i++) {
@@ -334,12 +337,12 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     }
 
-    this.writetofile(entriesString);
+    this.writetofile(filepath, entriesString);
   }
 
   // Write the given text to the log file
-  async writetofile(text) {
-    const file = Gio.File.new_for_path(logpath);
+  async writetofile(filepath, text) {
+    const file = Gio.File.new_for_path(filepath);
     //text = "Testing this.";
     try {
       // Save the file (asynchronously)
@@ -349,10 +352,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         false,
         Gio.FileCreateFlags.REPLACE_DESTINATION,
         null);
-      this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${logpath}`));
+      this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${filepath}`));
     } catch(e) {
-      logError(`Unable to save to ${logpath}: ${e.message}`);
-      this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${logpath}`));
+      logError(`Unable to save to ${filepath}: ${e.message}`);
+      this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${filepath}`));
     }
   }
 
@@ -648,11 +651,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     model.splice(0, projects.length, [new project({ value: "(no project)" })]);
     projects = ["(no project)"];
     if (projectArray.length > 0) {
-      for (let i = 0; i < projectArray.length; i++) {
-        model.splice(i + 1, 0, [new project({ value: projectArray[i] })]);
-      }
 
-      projects = projects.concat(projectArray);
+      this.addprojects(projectArray);
+
       if (theproject != "") {
         let projectindex = projects.indexOf(theproject);
 
@@ -662,6 +663,14 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
     }
+  }
+
+  addprojects(projectArray) {
+    const len = projects.length;
+    for (let i = 0; i < projectArray.length; i++) {
+      model.splice(i + len, 0, [new project({ value: projectArray[i] })]);
+    }
+    projects = projects.concat(projectArray);
   }
 
   // When the user clicks the start/stop button, do the right action
@@ -743,7 +752,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       body: toShow,
     });
     dialog.add_response("ok", "OK");
-    console.log("Alert dialog coming up.");
     const response = await dialog.choose(this, null, null);
     return response;
   }
@@ -781,8 +789,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     lastLast.setHours(23, 59, 59, 999);
     totalString += "\nThis week: " + this.createtotals(firstDay, today);
     totalString += "\nLast week: " + this.createtotals(firstLast, lastLast);
-
-    console.log(totalString);
   }
 
   // Find the total time between two dates, and output it by project
@@ -1076,7 +1082,6 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Replace all entries by importing an array of time entries
   async setentries(readentries) {
-    console.log(readentries[0].project);
     let new_items = [];
     for (let i = 0; i < readentries.length; i++) {
       let new_item = "";
@@ -1092,11 +1097,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     this.logmodel.splice(0, entries.length, new_items);
     entries = readentries;
 
+    // See if there's a currently running entry, and get all the projects
     let latestStartDate = null;
     let latestStartIndex = -1;
     let latestStartProject = "";
 
-    // If there's a currently running entry
+    let projectsfromlog = [];
+
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.end === null) {
@@ -1106,7 +1113,24 @@ export const TimeTrackerWindow = GObject.registerClass({
           latestStartProject = entry.project;
         }
       }
+      if (addprojectsfromlog) {
+        if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
+          projectsfromlog.push(entry.project);
+        }
+      }
     }
+
+    if (addprojectsfromlog && projectsfromlog.length > 0) {
+      this.addprojects(projectsfromlog);
+
+      let projectString = "";
+      for (let i = 1; i < projects.length - 1; i++) {
+        projectString += projects[i] + "`";
+      }
+      projectString += projects[projects.length-1];
+      this._settings.set_string("projects", projectString);
+    }
+
     let projectindex = projects.indexOf(latestStartProject);
     if (projectindex !== -1) {
       nochange = true; // There wasn't actually a change, so don't do anything when the selected-changed event is called
@@ -1131,7 +1155,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     let startColumn = 1;
     let endColumn = 2;
     let idColumn = 3;
-    console.log(text);
+
     let readentries = [];
 
     let lines = text.split('\n');
