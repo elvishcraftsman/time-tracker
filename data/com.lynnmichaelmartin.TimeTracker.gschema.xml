@@ -13,6 +13,12 @@
     <key name="firstdayofweek" type="i">
       <default>0</default>
     </key>
+    <key name="numberofbackups" type="i">
+      <default>7</default>
+    </key>
+    <key name="autosaveinterval" type="i">
+      <default>5</default>
+    </key>
     <key name="addprojectsfromlog" type="b">
       <default>true</default>
     </key>
