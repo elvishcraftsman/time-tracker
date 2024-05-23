@@ -16,6 +16,15 @@ Gio._promisify(Gio.File.prototype,
 Gio._promisify(Gio.File.prototype,
     'replace_contents_bytes_async',
     'replace_contents_finish');
+Gio._promisify(Gio.File.prototype,
+    'make_directory_async',
+    'make_directory_finish');
+Gio._promisify(Gio.File.prototype,
+    'enumerate_children_async',
+    'enumerate_children_finish');
+Gio._promisify(Gio.File.prototype,
+    'delete_async',
+    'delete_finish');
 
 // Declaring the variables
 let logging = false; // Is the timer currently logging time?
@@ -33,6 +42,9 @@ let currentTimer = -1;
 let changestobemade = false;
 let ampmformat = true;
 let nochange = false;
+let autosaveinterval = 5000;
+let tick = 0;
+let nexttick = 0;
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -220,9 +232,8 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Connecting the "Test New Feature" button with the proper function
     const testAction = new Gio.SimpleAction({name: 'test'});
-    testAction.connect('activate', () => {
-      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker/backup.csv']);
-      this.writelog(filepath);
+    testAction.connect('activate', async () => {
+      this.runbackups();
     });
     this.add_action(testAction);
 
@@ -237,14 +248,13 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Check if there's a user-selected log file, and load it; otherwise, prompt the user to create one
     if (logpath == "") {
-      this.newlog();
+      this.firstusedialog();
     } else {
-      try {
-        this.readfromfile(logpath);
-      } catch (_) {
-        console.log("Failed reading from file " + logpath);
-        // If it fails to read the file, prompt the user to select one
-        this.openlog();
+      const file = Gio.File.new_for_path(logpath);
+      if (file.query_exists(null)) {
+        this.readfromfile();
+      } else {
+        this.firstusedialog(logpath);
       }
     }
 
@@ -253,14 +263,31 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // When the autosave timer fires, check to see if there are any changes in the queue
   async shouldsave() {
+    tick += 1;
     if (changestobemade) {
       changestobemade = false;
       this.writelog();
     }
+    try {
+      if (tick >= nexttick) {
+        // Set up tomorrow's backup at 1 AM if the program isn't closed
+        const now = new Date();
+        const nextmorning = new Date();
+        nextmorning.setDate(now.getDate() + 1);
+        nextmorning.setHours(1, 0, 0, 0);
+        const tickstogo = Math.floor((nextmorning - now) / autosaveinterval);
+        nexttick += tickstogo;
+
+        // Run auto backup
+        this.runbackups();
+      }
+    } catch (_) {
+      // Backups failed
+    }
   }
 
   // Present a dialog for creating a new log file
-  async newlog() {
+  async newlog(firsttime = false) {
     console.log("Create new log file");
     const fileDialog = new Gtk.FileDialog();
 
@@ -270,7 +297,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         if (file) {
           if (logpath.includes("file:///run/user/")) {
-            nopermissions = true;
+            //nopermissions = true;
             const errormessage = "You have not given Time Tracker the permission to read/write files in the home directory. Time Tracker cannot run without these permissions. You may want to configure this with FlatSeal.";
             console.log(errormessage);
             this.alert(errormessage);
@@ -279,16 +306,29 @@ export const TimeTrackerWindow = GObject.registerClass({
             console.log(logpath);
             this._settings.set_string("log", logpath);
             this.writelog();
+
+            // Set up autosave timer
+            this.setautosavetimer();
           }
         }
       } catch(_) {
         // user closed the dialog without selecting any file
+        if (firsttime) {
+          // Don't let them get away without creating a log of some kind
+          this.firstusedialog();
+        }
       }
     });
   }
 
+  async setautosavetimer() {
+    tick = 0;
+    nexttick = 300000 / autosaveinterval; // The next time to check for daily activities (5 min from now)
+    savetimer = setInterval(() => this.shouldsave(), autosaveinterval);
+  }
+
   // Present a dialog for opening an existing log file
-  async openlog() {
+  async openlog(firsttime = false) {
     console.log("Open existing log file");   // Create a new file selection dialog
     const fileDialog = new Gtk.FileDialog();
 
@@ -299,7 +339,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         if (file) {
           if (logpath.includes("file:///run/user/")) {
-            nopermissions = true;
+            //nopermissions = true;
             const errormessage = "You have not given Time Tracker the permission to read/write files in the home directory. Time Tracker cannot run without these permissions. You may want to configure this with FlatSeal.";
             console.log(errormessage);
             this.alert(errormessage);
@@ -312,12 +352,16 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       } catch(_) {
          // user closed the dialog without selecting any file
+        if (firsttime) {
+          // Don't let them get away without creating a log of some kind
+          this.firstusedialog();
+        }
       }
     });
   }
 
   // Convert the log array into CSV format
-  async writelog(filepath = logpath) {
+  async writelog(filepath = logpath, notify = true) {
     let entriesString = "Project,Start Time,End Time\n";
 
     for (let i = 0; i < entries.length; i++) {
@@ -337,12 +381,13 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     }
 
-    this.writetofile(filepath, entriesString);
+    this.writetofile(filepath, entriesString, notify);
   }
 
   // Write the given text to the log file
-  async writetofile(filepath, text) {
+  async writetofile(filepath, text, notify = true) {
     const file = Gio.File.new_for_path(filepath);
+    console.log("Attempting to write to " + filepath);
     //text = "Testing this.";
     try {
       // Save the file (asynchronously)
@@ -352,10 +397,14 @@ export const TimeTrackerWindow = GObject.registerClass({
         false,
         Gio.FileCreateFlags.REPLACE_DESTINATION,
         null);
-      this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${filepath}`));
+      if (notify) {
+        this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${filepath}`));
+      }
     } catch(e) {
       logError(`Unable to save to ${filepath}: ${e.message}`);
-      this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${filepath}`));
+      if (notify) {
+        this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${filepath}`));
+      }
     }
   }
 
@@ -1085,7 +1134,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     let new_items = [];
     for (let i = 0; i < readentries.length; i++) {
       let new_item = "";
+      //console.log(readentries[i].end);
       if (readentries[i].end === null) {
+        //console.log("confirmed null");
         new_item = "[logging] | Project: " + readentries[i].project;
         new_items.push(new_item);
       } else {
@@ -1104,6 +1155,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     let projectsfromlog = [];
 
+    // Could at least part of this be merged with the above for loop?
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (entry.end === null) {
@@ -1127,7 +1179,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       for (let i = 1; i < projects.length - 1; i++) {
         projectString += projects[i] + "`";
       }
-      projectString += projects[projects.length-1];
+      projectString += projects[projects.length - 1];
       this._settings.set_string("projects", projectString);
     }
 
@@ -1145,7 +1197,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
 
     // Start autosave timer
-    savetimer = setInterval(() => this.shouldsave(), 1000);
+    this.setautosavetimer();
     this.updatetotals();
   }
 
@@ -1161,14 +1213,20 @@ export const TimeTrackerWindow = GObject.registerClass({
     let lines = text.split('\n');
     for (let i = 1; i < lines.length; i++) {
       let strings = lines[i].split(',');
-      let endvalue = null;
-      if (strings[endColumn] != "") {
-        endvalue = new Date(strings[endColumn]);
+      //let endvalue = null;
+      //console.log(strings[endColumn]);
+      let endvalue = new Date(strings[endColumn]);
+      if (isNaN(endvalue)) {
+        endvalue = null;
+      }
+      let projvalue = strings[projectColumn];
+      if (projvalue == "") {
+        projvalue = "(no project)";
       }
       readentries.push({
         start: new Date(strings[startColumn]),
         end: endvalue,
-        project: strings[projectColumn]
+        project: projvalue
       });
     }
     this.setentries(readentries);
@@ -1201,31 +1259,121 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // This is a work in progress, and will replace the current method of opening a new file
-  firstusedialog() {
+  firstusedialog(thepath = "") {
     const dialog = new Adw.AlertDialog({
-      heading: "Welcome to Time Tracker",
-      body: `Before you start using Time Tracker,
-      choose where your time logs will be stored.
-      You can also edit other settings in Time Tracker preferences.
-      If you chose the app's system folder, you can find it in
-      the hidden folder in your home folder: /.local/applications/time-tracker/`,
       close_response: "cancel",
     });
 
-    dialog.add_response("option1", "In App's System Folder");
+    if (thepath == "") {
+      dialog.heading = "Welcome to Time Tracker!";
+      dialog.body = "Before you start using Time Tracker, choose where " +
+      "to store your time logs. You can also edit other settings, like " +
+      "the first day of the week, in Time Tracker preferences.";
+    } else {
+      dialog.heading = "Choose a Log File";
+      dialog.body = "Time Tracker couldn't find the previously-used log " +
+      "file: " + thepath + ". Please choose the log again or choose a new one.";
+    }
+
+    dialog.add_response("option1", "Use App's System Folder");
     dialog.add_response("option2", "Create New Log");
     dialog.add_response("option3", "Use Existing Log");
 
-    dialog.connect("response", (_, response_id) => {
+    dialog.connect("response", async (_, response_id) => {
       if (response_id === "option2") {
-
+        this.newlog(true);
       } else if (response_id === "option3") {
-
+        this.openlog(true);
       } else {
         // system folder
+        const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
+        const directory = Gio.File.new_for_path(filepath);
+        let success = false;
+        try {
+          success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
+        } catch (_) {
+          // Folder already existed?
+        }
+        console.log("Tried to write directory " + filepath + ". Success? " + success);
+        logpath = filepath + "/log.csv";
+        //console.log(logpath);
+        this._settings.set_string("log", logpath);
+        // Need to check if file exists
+        const file = Gio.File.new_for_path(logpath);
+        if (file.query_exists(null)) {
+          this.readfromfile();
+        } else {
+          this.writelog();
+        }
+        // Set up autosave timer
+        this.setautosavetimer();
       }
     });
 
     dialog.present(this);
+  }
+
+  async runbackups(deleteold = true) {
+    console.log("Trying to do a backup");
+    try {
+      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
+      const directory = Gio.File.new_for_path(filepath);
+      const iter = await directory.enumerate_children_async('standard::*',
+          Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
+
+      // Find all files in directory
+      let files = [];
+      for await (const fileInfo of iter)
+          files.push(fileInfo.get_name());
+
+      // Check if a backup was made today
+      let today = new Date();
+      let todaysname = "backup_" + today.getFullYear() +
+      "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
+      this.intto2digitstring(today.getDate()) + ".csv";
+      let todaysbackup = files.indexOf(todaysname);
+      //console.log(todaysname);
+      //console.log(todaysbackup);
+
+      if (todaysbackup == -1) {
+        // Run backup
+        this.writelog(filepath + "/" + todaysname, false);
+        console.log("Saved a backup for today");
+        files.push(todaysname);
+      }
+
+      // Clean up extra backups according to numberofbackups
+      if (deleteold) {
+        files.sort();
+        let filestodelete = [];
+          let numberofbackups = 7;
+        try {
+          numberofbackups = this._settings.get_int("numberofbackups");
+        } catch (_) {
+        }
+        let number = 0;
+        for (let i = files.length-1; i > -1; i--) {
+          if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
+            if (number <= numberofbackups) {
+              number += 1;
+            } else {
+              filestodelete.push(files[i]);
+            }
+          }
+        }
+
+        // delete filestodelete
+        if (filestodelete.length > 0) {
+          for (let i = 0; i < filestodelete.length; i++) {
+            const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
+
+            await file.delete_async(GLib.PRIORITY_DEFAULT, null);
+          }
+          console.log("Deleted old backups: " + filestodelete);
+        }
+      }
+    } catch (e) {
+      console.log("Tried to save backup, but failed: " + e);
+    }
   }
 });
