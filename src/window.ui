@@ -3,13 +3,26 @@
   <requires lib="gtk" version="4.0"/>
   <requires lib="Adw" version="1.0"/>
   <template class="TimeTrackerWindow" parent="AdwApplicationWindow">
-    <property name="default-width">450</property>
-    <property name="default-height">600</property>
-    <property name="title">Time Tracker</property>
+    <property name="title" translatable="true">Time Tracker</property>
+    <property name="width-request">450</property>
+    <property name="height-request">600</property>
     <property name="content">
-      <object class="AdwToolbarView">
-        <child type="top">
+      <object class="GtkBox">
+        <property name="orientation">1</property>
+        <child>
           <object class="AdwHeaderBar" id="header_bar">
+            <child>
+              <object class="GtkButton" id="add">
+                <property name="icon-name">list-add-symbolic</property>
+                <property name="tooltip-text" translatable="true">Add Item</property>
+              </object>
+            </child>
+            <property name="title-widget">
+              <object class="AdwViewSwitcher" id="switcher_title">
+                <property name="stack">stack</property>
+                <property name="policy">1</property>
+              </object>
+            </property>
             <child type="end">
               <object class="GtkMenuButton">
                 <property name="primary">True</property>
@@ -20,130 +33,212 @@
             </child>
           </object>
         </child>
-        <property name="content">
-          <object class="AdwToastOverlay" id="toast_overlay">
-            <property name="child">
-              <object class="GtkBox" id="main">
-                <property name="orientation">1</property>
-                <property name="halign">3</property>
-                <property name="margin-top">24</property>
-                <property name="margin-bottom">24</property>
-                <child>
-                  <object class="GtkLabel" id="status">
-                    <property name="label" translatable="true">00:00:00</property>
-                    <style>
-                      <class name="title-1"/>
-                      <class name="numeric"/>
-                    </style>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkBox" id="controls">
-                    <property name="orientation">0</property>
-                    <property name="valign">3</property>
-                    <property name="halign">3</property>
-                    <property name="margin-top">24</property>
-                    <property name="margin-bottom">24</property>
-                    <property name="spacing">18</property>
-                    <child>
-                      <object class="GtkButton" id="startbutton">
-                        <property name="label" translatable="true">Start</property>
-                        <property name="action-name">win.start</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkBox">
-                        <style>
-                          <class name="linked"/>
-                        </style>
+        <child>
+          <object class="AdwViewStack" id="stack">
+            <property name="vexpand">true</property>
+            <child>
+              <object class="AdwViewStackPage" id="page1">
+                <property name="name">page1</property>
+                <property name="title" translatable="true">Tracker</property>
+                <property name="icon-name">preferences-system-time-symbolic</property>
+                <property name="use-underline">true</property>
+                <property name="child">
+                  <object class="AdwToastOverlay" id="toast_overlay">
+                    <property name="child">
+                      <object class="GtkBox" id="main">
+                        <property name="orientation">1</property>
+                        <property name="halign">3</property>
+                        <property name="margin-top">24</property>
+                        <property name="margin-bottom">24</property>
                         <child>
-                          <object class="GtkDropDown" id="projectlist">
-                            <property name="enable-search">true</property>
-                            <property name="model">
-                              <object class="GtkStringList"></object>
+                          <object class="GtkLabel" id="status">
+                            <property name="label" translatable="true">00:00:00</property>
+                            <style>
+                              <class name="title-1"/>
+                              <class name="numeric"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox" id="controls">
+                            <property name="orientation">0</property>
+                            <property name="valign">3</property>
+                            <property name="halign">3</property>
+                            <property name="margin-top">24</property>
+                            <property name="margin-bottom">24</property>
+                            <property name="spacing">18</property>
+                            <child>
+                              <object class="GtkButton" id="startbutton">
+                                <property name="label" translatable="true">Start</property>
+                                <property name="action-name">win.start</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox">
+                                <style>
+                                  <class name="linked"/>
+                                </style>
+                                <child>
+                                  <object class="GtkDropDown" id="projectlist">
+                                    <property name="enable-search">true</property>
+                                    <property name="model">
+                                      <object class="GtkStringList"></object>
+                                    </property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="editproject">
+                                    <property name="icon-name">document-edit-symbolic</property>
+                                    <property name="tooltip-text" translatable="true">Edit Item</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="halign">3</property>
+                            <property name="margin-bottom">12</property>
+                            <style>
+                              <class name="linked"/>
+                            </style>
+                            <child>
+                              <object class="GtkSearchEntry" id="search_entry">
+                                <property name="placeholder-text" translatable="true">Search items</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkScrolledWindow">
+                            <property name="hexpand">true</property>
+                            <property name="vexpand">true</property>
+                            <property name="margin-top">6</property>
+                            <property name="margin-bottom">6</property>
+                            <property name="margin-start">6</property>
+                            <property name="margin-end">6</property>
+                            <property name="child">
+                              <object class="GtkListBox" id="list_box_editable">
+                                <property name="hexpand">true</property>
+                                <property name="valign">1</property>
+                                <property name="activate-on-single-click">true</property>
+                                <property name="selection-mode">1</property>
+                                <style>
+                                  <class name="boxed-list"/>
+                                  <class name="numeric"/>
+                                </style>
+                              </object>
                             </property>
                           </object>
                         </child>
-                        <child>
-                          <object class="GtkButton" id="editproject">
-                            <property name="icon-name">document-edit-symbolic</property>
-                            <property name="tooltip-text" translatable="true">Edit Item</property>
-                          </object>
-                        </child>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkBox">
-                    <property name="halign">3</property>
-                    <property name="margin-bottom">12</property>
-                    <style>
-                      <class name="linked"/>
-                    </style>
-                    <child>
-                      <object class="GtkSearchEntry" id="search_entry">
-                        <property name="placeholder-text" translatable="true">Search items</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkButton" id="add">
-                        <property name="icon-name">list-add-symbolic</property>
-                        <property name="tooltip-text" translatable="true">Add Item</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkButton" id="edit">
-                        <property name="icon-name">document-edit-symbolic</property>
-                        <property name="tooltip-text" translatable="true">Edit Item</property>
-                        <property name="sensitive">false</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkButton" id="remove">
-                        <property name="icon-name">list-remove-symbolic</property>
-                        <property name="tooltip-text" translatable="true">Remove Item</property>
-                        <property name="sensitive">false</property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkButton" id="totalbutton">
-                    <property name="label" translatable="true">Display Totals</property>
-                    <property name="margin-bottom">6</property>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkScrolledWindow">
-                    <property name="hexpand">true</property>
-                    <property name="vexpand">true</property>
-                    <property name="margin-top">6</property>
-                    <property name="margin-bottom">6</property>
-                    <property name="margin-start">6</property>
-                    <property name="margin-end">6</property>
-                    <property name="child">
-                      <object class="GtkListBox" id="list_box_editable">
-                        <property name="hexpand">true</property>
-                        <property name="valign">1</property>
-                        <property name="activate-on-single-click">true</property>
-                        <property name="selection-mode">1</property>
-                        <style>
-                          <class name="boxed-list"/>
-                          <class name="numeric"/>
-                        </style>
                       </object>
                     </property>
                   </object>
-                </child>
+                </property>
               </object>
-            </property>
+            </child>
+            <child>
+              <object class="AdwViewStackPage" id="page2">
+                <property name="name">page2</property>
+                <property name="title" translatable="true">Reports</property>
+                <property name="icon-name">document-page-setup-symbolic</property>
+                <property name="use-underline">true</property>
+                <property name="child">
+                  <object class="AdwStatusPage">
+                    <property name="child">
+                      <object class="GtkBox">
+                        <property name="valign">1</property>
+                        <property name="spacing">6</property>
+                        <property name="orientation">1</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">Today</property>
+                            <style>
+                              <class name="title-1"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="todaylabel">
+                            <property name="label"></property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">This Week</property>
+                            <property name="margin-top">24</property>
+                            <style>
+                              <class name="title-1"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="thisweeklabel">
+                            <property name="label"></property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">Last Week</property>
+                            <property name="margin-top">24</property>
+                            <style>
+                              <class name="title-1"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="lastweeklabel">
+                            <property name="label"></property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">Custom</property>
+                            <property name="margin-top">24</property>
+                            <style>
+                              <class name="title-1"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="orientation">0</property>
+                            <property name="halign">3</property>
+                            <property name="margin-top">6</property>
+                            <property name="margin-bottom">6</property>
+                            <style>
+                              <class name="linked"/>
+                            </style>
+                            <child>
+                              <object class="GtkButton" id="reportstart">
+                                <property name="label">Start</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkButton" id="reportend">
+                                <property name="label">End</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="customlabel">
+                            <property name="label"></property>
+                          </object>
+                        </child>
+                      </object>
+                    </property>
+                  </object>
+                </property>
+              </object>
+            </child>
           </object>
-        </property>
+        </child>
       </object>
     </property>
   </template>
-  <menu id="primary_menu">
+    <menu id="primary_menu">
     <section>
       <item>
         <attribute name="label" translatable="yes">_Preferences</attribute>

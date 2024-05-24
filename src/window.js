@@ -99,7 +99,10 @@ for (let i = 0; i < 12; i++) {
 export const TimeTrackerWindow = GObject.registerClass({
   GTypeName: 'TimeTrackerWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
-  InternalChildren: ['status', 'startbutton', 'projectlist', 'list_box_editable', 'add', 'edit', 'remove', 'editproject', 'search_entry', 'totalbutton', 'toast_overlay'],
+  InternalChildren: ['status', 'startbutton', 'projectlist',
+  'list_box_editable', 'add', 'editproject', 'search_entry',
+  'toast_overlay', 'customlabel', 'todaylabel', 'thisweeklabel',
+  'lastweeklabel', 'reportstart', 'reportend'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -155,8 +158,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       } else {
         if (selection && logging) {
           const value = selection.value;
-          this.editrunningentry(value);
           console.log("Selected project: " + value);
+          this.editrunningentry(value);
         }
       }
     });
@@ -194,12 +197,13 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.editentrydialog();
     });
 
-    // Connecting the remove entry button with the proper function
+    /* Connecting the remove entry button with the proper function
     this._remove.connect("clicked", () => {
       const selectedRow = this._list_box_editable.get_selected_row();
       const index = selectedRow.get_index();
       this.removeentry(index);
     });
+
 
     // Connecting the edit entry button with the proper function
     this._edit.connect("clicked", () => {
@@ -207,6 +211,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       const index = selectedRow.get_index();
       this.editentrydialog(index);
     });
+    */
 
     // Connecting the edit project button with the proper function
     this._editproject.connect("clicked", () => {
@@ -221,29 +226,34 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Making the edit and remove buttons clickable when a log row is selected
     this._list_box_editable.connect("row-selected", () => {
-      this._remove.sensitive = this._list_box_editable.get_selected_row() !== null;
-      this._edit.sensitive = this._list_box_editable.get_selected_row() !== null;
-    });
+      //this._remove.sensitive = this._list_box_editable.get_selected_row() !== null;
+      //this._edit.sensitive = this._list_box_editable.get_selected_row() !== null;
 
-    // Connecting the button for displaying the reports
-    this._totalbutton.connect("clicked", () => {
-      this.alert(totalString);
+      const selectedRow = this._list_box_editable.get_selected_row();
+      if (selectedRow) {
+        const index = selectedRow.get_index();
+        this._list_box_editable.unselect_all();
+        this.editentrydialog(index);
+      }
     });
 
     // Connecting the "Test New Feature" button with the proper function
     const testAction = new Gio.SimpleAction({name: 'test'});
     testAction.connect('activate', async () => {
-      this.runbackups();
+      this.close();
     });
     this.add_action(testAction);
 
-    // Connecting the edit project button with the proper function
-    this.connect("close-request", () => {
+    // Autosaving before close
+    this.closehandler = this.connect("close-request", async () => {
+      // Make it possible to close the window
+      this.disconnect(this.closehandler);
       console.log("closing");
       if (changestobemade) {
         changestobemade = false;
-        this.writelog();
+        await this.writelog();
       }
+      setInterval(() => {this.close()}, 10); // Call something else that will actually close the window
     });
 
     // Check if there's a user-selected log file, and load it; otherwise, prompt the user to create one
@@ -464,7 +474,10 @@ export const TimeTrackerWindow = GObject.registerClass({
       endDate = entries[number].end;
       dialog.heading = "Edit Entry";
     }
-
+    if (number > -1) {
+      dialog.add_response("delete", "Delete");
+      dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
+    }
     dialog.add_response("cancel", "Cancel");
     dialog.add_response("okay", "OK");
 
@@ -577,6 +590,9 @@ export const TimeTrackerWindow = GObject.registerClass({
             "Your response was invalid. Reason: " + validated,
           );
         }
+      } else if (response_id === "delete") {
+        this.removeentry(number);
+        this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
       }
     });
 
@@ -812,7 +828,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     let last = new Date();
     first.setHours(0, 0, 0, 0);
     last.setHours(23, 59, 59, 999);
-    totalString = "Today: " + this.createtotals(first, last);
+    this._todaylabel.label = this.createtotals(first, last);
 
     let today = new Date();
     let firstDay;
@@ -836,14 +852,15 @@ export const TimeTrackerWindow = GObject.registerClass({
     firstLast.setDate(firstDay.getDate() - 7); // Get the day one week before firstDay
     firstLast.setHours(0, 0, 0, 0);
     lastLast.setHours(23, 59, 59, 999);
-    totalString += "\nThis week: " + this.createtotals(firstDay, today);
-    totalString += "\nLast week: " + this.createtotals(firstLast, lastLast);
+    this._thisweeklabel.label = this.createtotals(firstDay, today);
+    this._lastweeklabel.label = this.createtotals(firstLast, lastLast);
+    //this._customlabel.label = totalString;
   }
 
   // Find the total time between two dates, and output it by project
   // Should make it possible to output the total too {{{
   createtotals(startDate, endDate) {
-    let totals = [];
+    let totals = [{project: "Total", total: 0}];
 
     // Is there a better way to do this?
     for (const entry of entries) {
@@ -853,6 +870,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (end !== null && start > startDate && end < endDate) {
         let sum = end.getTime() - start.getTime(); // Time difference in milliseconds
         sum = Math.floor(sum / 1000);
+
+        totals[0].total += sum;
 
         // Check if project already exists in totals
         let found = false;
@@ -878,7 +897,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       resultString += totals[i].project + ": " + thetotal;
 
       if (i !== totals.length - 1) {
-        resultString += ", ";
+        resultString += "\n";
       }
     }
 
@@ -1289,10 +1308,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
         const directory = Gio.File.new_for_path(filepath);
         let success = false;
-        try {
+        if (!directory.query_exists(null)) {
           success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
-        } catch (_) {
-          // Folder already existed?
         }
         console.log("Tried to write directory " + filepath + ". Success? " + success);
         logpath = filepath + "/log.csv";
@@ -1318,58 +1335,64 @@ export const TimeTrackerWindow = GObject.registerClass({
     try {
       const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
       const directory = Gio.File.new_for_path(filepath);
-      const iter = await directory.enumerate_children_async('standard::*',
-          Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
+      if (!directory.query_exists(null)) {
+        success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
+      } else {
+        const iter = await directory.enumerate_children_async('standard::*',
+            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
 
-      // Find all files in directory
-      let files = [];
-      for await (const fileInfo of iter)
-          files.push(fileInfo.get_name());
+        // Find all files in directory
+        let files = [];
+        for await (const fileInfo of iter)
+            files.push(fileInfo.get_name());
 
-      // Check if a backup was made today
-      let today = new Date();
-      let todaysname = "backup_" + today.getFullYear() +
-      "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
-      this.intto2digitstring(today.getDate()) + ".csv";
-      let todaysbackup = files.indexOf(todaysname);
-      //console.log(todaysname);
-      //console.log(todaysbackup);
+        // Check if a backup was made today
+        let today = new Date();
+        let todaysname = "backup_" + today.getFullYear() +
+        "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
+        this.intto2digitstring(today.getDate()) + ".csv";
+        let todaysbackup = files.indexOf(todaysname);
+        //console.log(todaysname);
+        //console.log(todaysbackup);
 
-      if (todaysbackup == -1) {
-        // Run backup
-        this.writelog(filepath + "/" + todaysname, false);
-        console.log("Saved a backup for today");
-        files.push(todaysname);
-      }
-
-      // Clean up extra backups according to numberofbackups
-      if (deleteold) {
-        files.sort();
-        let filestodelete = [];
-          let numberofbackups = 7;
-        try {
-          numberofbackups = this._settings.get_int("numberofbackups");
-        } catch (_) {
+        if (todaysbackup == -1) {
+          // Run backup
+          this.writelog(filepath + "/" + todaysname, false);
+          console.log("Saved a backup for today");
+          files.push(todaysname);
+        } else {
+          console.log("No backup needed");
         }
-        let number = 0;
-        for (let i = files.length-1; i > -1; i--) {
-          if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
-            if (number <= numberofbackups) {
-              number += 1;
-            } else {
-              filestodelete.push(files[i]);
+
+        // Clean up extra backups according to numberofbackups
+        if (deleteold) {
+          files.sort();
+          let filestodelete = [];
+            let numberofbackups = 7;
+          try {
+            numberofbackups = this._settings.get_int("numberofbackups");
+          } catch (_) {
+          }
+          let number = 0;
+          for (let i = files.length-1; i > -1; i--) {
+            if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
+              if (number <= numberofbackups) {
+                number += 1;
+              } else {
+                filestodelete.push(files[i]);
+              }
             }
           }
-        }
 
-        // delete filestodelete
-        if (filestodelete.length > 0) {
-          for (let i = 0; i < filestodelete.length; i++) {
-            const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
+          // delete filestodelete
+          if (filestodelete.length > 0) {
+            for (let i = 0; i < filestodelete.length; i++) {
+              const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
 
-            await file.delete_async(GLib.PRIORITY_DEFAULT, null);
+              await file.delete_async(GLib.PRIORITY_DEFAULT, null);
+            }
+            console.log("Deleted old backups: " + filestodelete);
           }
-          console.log("Deleted old backups: " + filestodelete);
         }
       }
     } catch (e) {
