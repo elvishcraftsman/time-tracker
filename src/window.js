@@ -42,9 +42,18 @@ let currentTimer = -1;
 let changestobemade = false;
 let ampmformat = true;
 let nochange = false;
-let autosaveinterval = 5000;
+let autosaveinterval = 1000;
 let tick = 0;
 let nexttick = 0;
+let customstart = null;
+let customend = null;
+let sync_operation = 0; // Is a current operation trying to sync?
+let sync_changes = []; // Changes to be synced
+// type, project, start, stop, ID, oldproject, oldstart, oldstop, written, validated
+let sync_extraentries = []; // Entries not to be read into entries array, but to be written to the log file
+let sync_firsttime = true;
+let changemadebyself = false;
+let fileMonitor;
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -121,6 +130,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Applying the custom settings
     firstdayofweek = this._settings.get_int("firstdayofweek");
+    autosaveinterval = this._settings.get_int("autosaveinterval") * 1000;
     addprojectsfromlog = this._settings.get_boolean("addprojectsfromlog");
     logpath = this._settings.get_string("log");
     const projectsSetting = this._settings.get_string("projects");
@@ -153,7 +163,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._projectlist.connect("notify::selected-item", () => {
       const selection = this._projectlist.selected_item;
       // When the selected project changes, change the project in the currently running entry, if any
+      console.log("firing projectlist selection");
       if (nochange) {
+        console.log("Shouldn't change project");
         nochange = false;
       } else {
         if (selection && logging) {
@@ -166,13 +178,13 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Defining the model for the log
     this.logmodel = new Gtk.StringList();
-    this.logmodel.connect("items-changed", (_self, position, removed, added) => {
+    /*this.logmodel.connect("items-changed", (_self, position, removed, added) => {
       console.log(
         `position: ${position}, Item removed? ${Boolean(
           removed,
         )}, Item added? ${Boolean(added)}`,
       );
-    });
+    });*/
 
     // Defining the searching and filtering model
     const search_expression = Gtk.PropertyExpression.new(
@@ -195,6 +207,22 @@ export const TimeTrackerWindow = GObject.registerClass({
     // Connecting the add entry button with the proper function
     this._add.connect("clicked", () => {
       this.editentrydialog();
+    });
+
+    this._reportstart.connect("clicked", () => {
+      this.datedialog(customstart, (date) => {
+        customstart = date;
+        this._reportstart.label = this.datetotext(date);
+        this.updatetotals();
+      });
+    });
+
+    this._reportend.connect("clicked", () => {
+      this.datedialog(customend, (date) => {
+        customend = date;
+        this._reportend.label = this.datetotext(date);
+        this.updatetotals();
+      });
     });
 
     /* Connecting the remove entry button with the proper function
@@ -240,7 +268,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     // Connecting the "Test New Feature" button with the proper function
     const testAction = new Gio.SimpleAction({name: 'test'});
     testAction.connect('activate', async () => {
-      this.close();
+      //this.readfromfile();
     });
     this.add_action(testAction);
 
@@ -356,6 +384,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           } else {
             logpath = file.get_path();
             console.log(logpath);
+            sync_firsttime = true;
             this.readfromfile();
             this._settings.set_string("log", logpath);
           }
@@ -372,22 +401,29 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Convert the log array into CSV format
   async writelog(filepath = logpath, notify = true) {
-    let entriesString = "Project,Start Time,End Time\n";
+    let entriesString = "Project,Start Time,End Time,ID";
 
     for (let i = 0; i < entries.length; i++) {
       let project = "";
       let start = "";
       let end = "";
+      let ID = 0;
       try {
          project = entries[i].project;
          start = entries[i].start;
          end = entries[i].end;
+         ID = entries[i].ID;
       } catch (_) {
         // Something was empty
       }
-      entriesString += project + "," + start + "," + end;
-      if (i < entries.length - 1) {
-        entriesString += '\n';
+      entriesString += '\n' + project + "," + start + "," + end + "," + ID.toString();
+    }
+
+    //console.log(sync_extraentries);
+    if (sync_extraentries.length > 0) {
+      for (let i = 0; i < sync_extraentries.length; i++) {
+        let ID = sync_extraentries[i];
+        entriesString += '\n,deleted,,' + ID.toString();
       }
     }
 
@@ -400,6 +436,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     console.log("Attempting to write to " + filepath);
     //text = "Testing this.";
     try {
+      sync_operation = 2;
+      // Alert self that the next change should not be monitored
+      changemadebyself = true;
       // Save the file (asynchronously)
       await file.replace_contents_bytes_async(
         new GLib.Bytes(text),
@@ -407,10 +446,12 @@ export const TimeTrackerWindow = GObject.registerClass({
         false,
         Gio.FileCreateFlags.REPLACE_DESTINATION,
         null);
+      sync_operation = 0;
       if (notify) {
         this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${filepath}`));
       }
     } catch(e) {
+      sync_operation = 0;
       logError(`Unable to save to ${filepath}: ${e.message}`);
       if (notify) {
         this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${filepath}`));
@@ -419,13 +460,25 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Remove the given entry from the entries array and the log control
-  async removeentry(number) {
+  async removeentry(number, writeout = true) {
     if (number == currentTimer) {
       this.stopTimer();
     }
+    // Add it to the extraentries so that it isn't considered simply dropped
+    sync_extraentries.push(entries[number].ID);
+
+    // Note the change in the sync_change array
+    sync_changes.push({
+      change: "delete",
+      ID:entries[number].ID,
+      oldproject: entries[number].project,
+      oldstart: entries[number].start,
+      oldend: entries[number].end
+    });
+
     entries.splice(number, 1);
     this.logmodel.remove(number);
-    changestobemade = true;
+    changestobemade = writeout;
     this.updatetotals();
   }
 
@@ -581,8 +634,8 @@ export const TimeTrackerWindow = GObject.registerClass({
             console.log("Editing " + number + " " + theproject + " " + startDate + " " + endDate)
             this.editentry(number, theproject, startDate, endDate);
           }
-          if (logging && endDate == null) {
-            startedTime = startDate; // should go in if yes
+          if (currentTimer == number && endDate == null) {
+            startedTime = startDate; // Update the currently running entry
           }
         } else {
           this.editentrydialog(
@@ -660,11 +713,22 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Edit the given entry in the entries array and the log control
-  async editentry(number, theproject, startDate, endDate) {
+  async editentry(number, theproject, startDate, endDate, writeout = true) {
     // Stop the timer if the entry didn't have an end date, but does now
     if (entries[number].end == null && endDate != null) {
       this.stopTimer();
     }
+    // Note the change in the sync_change array
+    sync_changes.push({
+      change: "edit",
+      project: theproject,
+      start: startDate,
+      end: endDate,
+      ID: entries[number].ID,
+      oldproject: entries[number].project,
+      oldstart: entries[number].start,
+      oldend: entries[number].end
+    });
     entries[number].project = theproject;
     entries[number].start = startDate;
     entries[number].end = endDate;
@@ -677,25 +741,40 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.updatetotals();
     }
     this.logmodel.splice(number, 1, [new_item]);
-    changestobemade = true;
+    changestobemade = writeout;
   }
 
   // Add the given entry to the entries array and the log control
-  async addentry(project, startDate, endDate = null) {
-    entries.push({ start: startDate, end: endDate, project: project });
+  async addentry(theproject, startDate, endDate = null, writeout = true, ID = 0) {
+    const now = new Date();
+    if (ID == 0) {
+      ID = now.getTime();
+    }
+
+    // Note the change in the sync_change array
+    sync_changes.push({
+      change: "add",
+      project: theproject,
+      start: startDate,
+      end: endDate,
+      ID: ID
+    });
+
+    entries.push({ start: startDate, end: endDate, project: theproject, ID: ID });
 
     let new_item = "";
-    if (endDate === null) {
-      new_item = "[logging] | Project: " + project;
+    if (endDate === null && !logging) {
+      new_item = "[logging] | Project: " + theproject;
       console.log(new_item);
       this.logmodel.append(new_item);
+      this.startTimer(entries.length - 1, startDate);
     } else {
       new_item =
-        this.calcTimeDifference(startDate, endDate) + " | Project: " + project;
+        this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
       this.logmodel.append(new_item);
       this.updatetotals();
     }
-    changestobemade = true;
+    changestobemade = writeout;
   }
 
   // Something to do with searching the log control
@@ -709,9 +788,11 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Replace the current projects with the given projects in the array. If a project was selected already, try to select that same project when the projectlist reloads.
   async setprojects(projectArray = []) {
     const selection = this._projectlist.get_selected();
-    const theproject = projects[selection];
-    if (theproject != "") {
-      nochange = true; // There wasn't actually a change, so don't do anything when the selected-changed event is called
+    let theproject = "";
+    if (selection) {
+      theproject = projects[selection];
+      //nochange = true; // There wasn't actually a change, so don't do anything when the selected-item event is called
+      //console.log("Setting nochange in setprojects (1).");
     }
     model.splice(0, projects.length, [new project({ value: "(no project)" })]);
     projects = ["(no project)"];
@@ -723,7 +804,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         let projectindex = projects.indexOf(theproject);
 
         if (projectindex !== -1) {
-          nochange = true; // There wasn't actually a change, so don't do anything when the selected-changed event is called
+          nochange = true; // There wasn't actually a change, so don't do anything when the selected-item event is called
+          console.log("Setting nochange in setprojects(2).");
           this._projectlist.set_selected(projectindex);
         }
       }
@@ -746,13 +828,9 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     console.log("Is timer on? " + logging.toString());
     if (logging) {
-      this._startbutton.label = "Start";
       this.stoprunningentry(currentDate);
     } else {
-      this._startbutton.label = "Stop";
       this.addentry(selectionText, currentDate);
-      startedTime = currentDate;
-      this.startTimer(entries.length - 1);
     }
   }
 
@@ -760,6 +838,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async stopTimer() {
     logging = false;
     clearInterval(timer);
+    this._startbutton.label = "Start";
     this.setTimerText();
 
     try {
@@ -777,7 +856,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       const currentDate = new Date();
       this._status.label = this.calcTimeDifference(startedTime, currentDate);
     } else {
-      this._status.label = "0h 0m 0s";
+      this._status.label = "00:00:00";
     }
   }
 
@@ -793,8 +872,10 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Start the timer
-  async startTimer(number) {
+  async startTimer(number, startDate) {
     logging = true;
+    this._startbutton.label = "Stop";
+    startedTime = startDate;
     this.setTimerText();
     timer = setInterval(() => this.setTimerText(), 1000);
     currentTimer = number;
@@ -854,7 +935,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     lastLast.setHours(23, 59, 59, 999);
     this._thisweeklabel.label = this.createtotals(firstDay, today);
     this._lastweeklabel.label = this.createtotals(firstLast, lastLast);
-    //this._customlabel.label = totalString;
+    //this._customlabel.label = totalString
+
+    this._customlabel.label = this.createtotals(customstart, customend);
   }
 
   // Find the total time between two dates, and output it by project
@@ -867,7 +950,13 @@ export const TimeTrackerWindow = GObject.registerClass({
       const start = entry.start;
       const end = entry.end;
 
-      if (end !== null && start > startDate && end < endDate) {
+      if (end && !isNaN(end) && start && !isNaN(start) && start < endDate && end > startDate) {
+        if (start < startDate) {
+          start = startDate;
+        }
+        if (end > endDate) {
+          end = endDate;
+        }
         let sum = end.getTime() - start.getTime(); // Time difference in milliseconds
         sum = Math.floor(sum / 1000);
 
@@ -905,6 +994,10 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async datedialog(date = new Date(), tocall = null, body = "", ampm = true) {
+    if (!date || isNaN(date)) {
+      date = new Date();
+    }
+
     const dialog = new Adw.AlertDialog({
       heading: "Choose the Date & Time",
       close_response: "cancel",
@@ -1148,75 +1241,159 @@ export const TimeTrackerWindow = GObject.registerClass({
     return dateString;
   }
 
+  async startmonitor() {
+    const file = Gio.File.new_for_path(logpath);
+    fileMonitor = file.monitor(Gio.FileMonitorFlags.WATCH_HARD_LINKS, null);
+    console.log("Starting to watch " + logpath);
+
+    fileMonitor.connect('changed', (_fileMonitor, thefile, _, eventType) => {
+      if (eventType == 1) {
+        console.log("Change detected in file " + thefile.get_path());
+        // Check to see if an actual change was made, or if this is being fired due to an action by self
+        if (changemadebyself) {
+          changemadebyself = false;
+        } else {
+          this.readfromfile();
+        }
+      }
+    });
+  }
+
   // Replace all entries by importing an array of time entries
   async setentries(readentries) {
-    let new_items = [];
-    for (let i = 0; i < readentries.length; i++) {
-      let new_item = "";
-      //console.log(readentries[i].end);
-      if (readentries[i].end === null) {
-        //console.log("confirmed null");
-        new_item = "[logging] | Project: " + readentries[i].project;
-        new_items.push(new_item);
-      } else {
-        new_item =
-          this.calcTimeDifference(readentries[i].start, readentries[i].end) + " | Project: " + readentries[i].project;
-        new_items.push(new_item);
-      }
-    }
-    this.logmodel.splice(0, entries.length, new_items);
-    entries = readentries;
+    if (sync_firsttime) {
+      sync_firsttime = false;
 
-    // See if there's a currently running entry, and get all the projects
-    let latestStartDate = null;
-    let latestStartIndex = -1;
-    let latestStartProject = "";
+      // Preparing to see if there's a currently running entry, and get all the projects
+      let latestStartDate = null;
+      let latestStartIndex = -1;
+      let latestStartProject = "";
+      let projectsfromlog = [];
 
-    let projectsfromlog = [];
+      // The variable to be written to the visible log
+      let new_items = [];
+      let modelLength = entries.length;
+      entries = []; // Empty entries array
+      sync_extraentries = []; // Empty deleted entries array
+      for (let i = 0; i < readentries.length; i++) {
+        let entry = readentries[i];
+        if (!isNaN(entry.start)) {
+          let new_item = "";
+          entries.push(entry);
+          if (entry.end === null) {
+            new_item = "[logging] | Project: " + entry.project;
+            new_items.push(new_item);
+            let projvalue = entry.project;
+            if (projvalue == "") {
+              projvalue = "(no project)";
+            }
 
-    // Could at least part of this be merged with the above for loop?
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      if (entry.end === null) {
-        if (latestStartDate === null || entry.start > latestStartDate) {
-          latestStartDate = entry.start;
-          latestStartIndex = i;
-          latestStartProject = entry.project;
+            if (latestStartDate === null || entry.start > latestStartDate) {
+              latestStartDate = entry.start;
+              latestStartIndex = i;
+              latestStartProject = projvalue;
+            }
+          } else {
+            new_item =
+              this.calcTimeDifference(entry.start, entry.end) + " | Project: " + entry.project;
+            new_items.push(new_item);
+          }
+          if (addprojectsfromlog) {
+            if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
+              projectsfromlog.push(entry.project);
+            }
+          }
+        } else {
+          sync_extraentries.push(entry.ID);
         }
       }
-      if (addprojectsfromlog) {
-        if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
-          projectsfromlog.push(entry.project);
+      this.logmodel.splice(0, modelLength, new_items);
+      //entries = readentries;
+
+      // Add any newfound projects
+      if (addprojectsfromlog && projectsfromlog.length > 0) {
+        this.addprojects(projectsfromlog);
+
+        let projectString = "";
+        for (let i = 1; i < projects.length - 1; i++) {
+          projectString += projects[i] + "`";
+        }
+        projectString += projects[projects.length - 1];
+        this._settings.set_string("projects", projectString);
+      }
+      let projectindex = projects.indexOf(latestStartProject);
+      if (projectindex !== -1) {
+        this._projectlist.set_selected(projectindex);
+      }
+
+      // Start timer
+      if (latestStartIndex > -1) {
+        this.startTimer(latestStartIndex, latestStartDate);
+        this._startbutton.label = "Stop";
+      }
+      // Start autosave timer
+      this.setautosavetimer();
+      // Start monitor
+      this.startmonitor();
+
+    } else {
+
+      for (let i = 0; i < readentries.length; i++) {
+        const entry = readentries[i];
+        const foundItem = entries.find(item => item.ID === entry.ID);
+        if (foundItem) {
+          let spot = entries.indexOf(foundItem);
+          // This was an existing entry
+
+          // Create a buffer between the actual dates and checking them, to keep from trying to convert a null value to string
+          let s1 = "";
+          let s2 = "";
+          let e1 = "";
+          let e2 = "";
+          if (entry.start) {
+            s1 = entry.start.toString()
+          }
+          if (entries[spot].start) {
+            s2 = entries[spot].start.toString()
+          }
+          if (entry.end) {
+            e1 = entry.end.toString()
+          }
+          if (entries[spot].end) {
+            e2 = entries[spot].end.toString()
+          }
+
+          if (entry.project != entries[spot].project || s1 != s2 || e1 != e2) {
+            if (!isNaN(entry.start)) { // May not be needed?
+              console.log("Editing " + spot);
+              this.editentry(spot, entry.project, entry.start, entry.end, false);
+            } else {
+              console.log("Removing " + spot);
+              this.removeentry(spot, false);
+            }
+          } else {
+            console.log("No need to edit " + spot);
+          }
+        } else {
+          if (!isNaN(entry.start)) {
+            // This was an added entry
+            console.log("Adding");
+            this.addentry(entry.project, entry.start, entry.end, false, entry.ID);
+          } else {
+            console.log("Skipping a delete line");
+          }
+        }
+      }
+      // Perform QC check to see if anything was deleted entirely
+      for (let i = 0; i < entries.length; i++) {
+        const foundItem = entries.find(item => item.ID === entries[i].ID);
+        if (!foundItem) {
+          console.log("Deletion occurred without warning: " + entries[i]);
+          this.removeentry(i, false);
         }
       }
     }
 
-    if (addprojectsfromlog && projectsfromlog.length > 0) {
-      this.addprojects(projectsfromlog);
-
-      let projectString = "";
-      for (let i = 1; i < projects.length - 1; i++) {
-        projectString += projects[i] + "`";
-      }
-      projectString += projects[projects.length - 1];
-      this._settings.set_string("projects", projectString);
-    }
-
-    let projectindex = projects.indexOf(latestStartProject);
-    if (projectindex !== -1) {
-      nochange = true; // There wasn't actually a change, so don't do anything when the selected-changed event is called
-      this._projectlist.set_selected(projectindex);
-    }
-
-    // Start timer
-    if (latestStartIndex > -1) {
-      this.startTimer(latestStartIndex);
-      startedTime = latestStartDate;
-      this._startbutton.label = "Stop";
-    }
-
-    // Start autosave timer
-    this.setautosavetimer();
     this.updatetotals();
   }
 
@@ -1230,51 +1407,63 @@ export const TimeTrackerWindow = GObject.registerClass({
     let readentries = [];
 
     let lines = text.split('\n');
-    for (let i = 1; i < lines.length; i++) {
-      let strings = lines[i].split(',');
-      //let endvalue = null;
-      //console.log(strings[endColumn]);
-      let endvalue = new Date(strings[endColumn]);
-      if (isNaN(endvalue)) {
-        endvalue = null;
-      }
-      let projvalue = strings[projectColumn];
-      if (projvalue == "") {
-        projvalue = "(no project)";
-      }
-      readentries.push({
-        start: new Date(strings[startColumn]),
-        end: endvalue,
-        project: projvalue
-      });
-    }
-    this.setentries(readentries);
-  }
+    if (lines.length > 1) {
+      console.log("There are entries. Will try to read them.");
+      for (let i = 1; i < lines.length; i++) {
+        let strings = lines[i].split(',');
+        if (strings.length > 2) {
+          let endvalue = new Date(strings[endColumn]);
+          if (isNaN(endvalue)) {
+            endvalue = null;
+          }
+          let projvalue = strings[projectColumn];
+          let startvalue = new Date(strings[startColumn]);
+          // Clean deleted entries by passing them over in reading the entries
 
+          readentries.push({
+            start: new Date(strings[startColumn]),
+            end: endvalue,
+            project: projvalue,
+            ID: parseInt(strings[idColumn])
+          });
+
+        }
+      }
+      this.setentries(readentries);
+    }
+  }
+/*
+  async sync_readlog(text) {
+    if (sync_operation == 0 || )
+  }
+*/
   // Read text from a file and serve it to function that converts it into the application's entry format
   async readfromfile(thepath = logpath) {
-    console.log("Will read from this file: " + thepath);
-    const file = Gio.File.new_for_path(thepath);
-    let contentsBytes;
-    try {
-      contentsBytes = (await file.load_contents_async(null))[0];
-    } catch (e) {
-      console.log(e, `Unable to open ${file.peek_path()}`);
-      return;
-    }
-
-    try {
-      if (!GLib.utf8_validate(contentsBytes)) {
-        console.log(`Invalid text encoding for ${file.peek_path()}`);
+    if (sync_operation == 0 || Math.floor(sync_operation / 2) != sync_operation / 2) {
+      console.log("Will read from this file: " + thepath);
+      const file = Gio.File.new_for_path(thepath);
+      let contentsBytes;
+      try {
+        contentsBytes = (await file.load_contents_async(null))[0];
+      } catch (e) {
+        console.log(e, `Unable to open ${file.peek_path()}`);
         return;
       }
-    } catch (error) {
-      console.log("validate failed: " + error);
-    }
 
-    // Convert a UTF-8 bytes array into a String
-    const contentsText = new TextDecoder('utf-8').decode(contentsBytes);
-    this.readlog(contentsText);
+      try {
+        if (!GLib.utf8_validate(contentsBytes)) {
+          console.log(`Invalid text encoding for ${file.peek_path()}`);
+          return;
+        }
+      } catch (error) {
+        console.log("validate failed: " + error);
+      }
+
+      // Convert a UTF-8 bytes array into a String
+      const contentsText = new TextDecoder('utf-8').decode(contentsBytes);
+
+      this.readlog(contentsText);
+    }
   }
 
   // This is a work in progress, and will replace the current method of opening a new file
@@ -1297,9 +1486,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     dialog.add_response("option1", "Use App's System Folder");
     dialog.add_response("option2", "Create New Log");
     dialog.add_response("option3", "Use Existing Log");
+    dialog.add_response("cancel", "Close App");
+    dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
 
     dialog.connect("response", async (_, response_id) => {
-      if (response_id === "option2") {
+      if (response_id === "cancel") {
+        this.close();
+      } else if (response_id === "option2") {
         this.newlog(true);
       } else if (response_id === "option3") {
         this.openlog(true);
@@ -1313,7 +1506,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
         console.log("Tried to write directory " + filepath + ". Success? " + success);
         logpath = filepath + "/log.csv";
-        //console.log(logpath);
         this._settings.set_string("log", logpath);
         // Need to check if file exists
         const file = Gio.File.new_for_path(logpath);
@@ -1352,8 +1544,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
         this.intto2digitstring(today.getDate()) + ".csv";
         let todaysbackup = files.indexOf(todaysname);
-        //console.log(todaysname);
-        //console.log(todaysbackup);
 
         if (todaysbackup == -1) {
           // Run backup
