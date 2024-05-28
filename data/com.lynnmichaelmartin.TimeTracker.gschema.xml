@@ -16,7 +16,7 @@
     <key name="numberofbackups" type="i">
       <default>7</default>
     </key>
-    <key name="autosaveinterval" type="i">
+    <key name="syncinterval" type="i">
       <default>5</default>
     </key>
     <key name="addprojectsfromlog" type="b">
