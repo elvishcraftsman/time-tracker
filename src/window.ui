@@ -4,8 +4,8 @@
   <requires lib="Adw" version="1.0"/>
   <template class="TimeTrackerWindow" parent="AdwApplicationWindow">
     <property name="title" translatable="true">Time Tracker</property>
-    <property name="width-request">350</property>
-    <property name="height-request">500</property>
+    <property name="width-request">400</property>
+    <property name="height-request">550</property>
     <property name="content">
       <object class="GtkBox">
         <property name="orientation">1</property>
@@ -66,32 +66,24 @@
                             <property name="halign">3</property>
                             <property name="margin-top">24</property>
                             <property name="margin-bottom">24</property>
-                            <property name="spacing">18</property>
+                            <property name="spacing">20</property>
                             <child>
-                              <object class="GtkButton" id="startbutton">
-                                <property name="label" translatable="true">Start</property>
-                                <property name="action-name">win.start</property>
+                              <object class="GtkDropDown" id="projectlist">
+                                <property name="width-request">140</property>
+                                <property name="enable-search">true</property>
+                                <property name="model">
+                                  <object class="GtkStringList"></object>
+                                </property>
                               </object>
                             </child>
                             <child>
-                              <object class="GtkBox">
+                              <object class="GtkButton" id="startbutton">
+                                <property name="width-request">140</property>
+                                <property name="label" translatable="true">Start</property>
+                                <property name="action-name">win.start</property>
                                 <style>
-                                  <class name="linked"/>
+                                  <class name="suggested-action"/>
                                 </style>
-                                <child>
-                                  <object class="GtkDropDown" id="projectlist">
-                                    <property name="enable-search">true</property>
-                                    <property name="model">
-                                      <object class="GtkStringList"></object>
-                                    </property>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkButton" id="editproject">
-                                    <property name="icon-name">document-edit-symbolic</property>
-                                    <property name="tooltip-text" translatable="true">Edit Item</property>
-                                  </object>
-                                </child>
                               </object>
                             </child>
                           </object>
@@ -252,6 +244,10 @@
       </item>
     </section>
     <section>
+      <item>
+        <attribute name="label" translatable="yes">_Edit Projects</attribute>
+        <attribute name="action">win.projects</attribute>
+      </item>
       <item>
         <attribute name="label" translatable="yes">_Preferences</attribute>
         <attribute name="action">win.preferences</attribute>

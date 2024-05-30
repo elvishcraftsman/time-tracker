@@ -139,7 +139,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   GTypeName: 'TimeTrackerWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
   InternalChildren: ['status', 'startbutton', 'projectlist',
-  'list_box_editable', 'add', 'editproject', 'search_entry',
+  'list_box_editable', 'add', 'search_entry',
   'toast_overlay', 'customlabel', 'todaylabel', 'thisweeklabel',
   'lastweeklabel', 'reportstart', 'reportend'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
@@ -185,6 +185,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     const openAction = new Gio.SimpleAction({name: 'open'});
     openAction.connect('activate', () => this.openlog());
     this.add_action(openAction);
+
+    // Connecting the "Open Log" button with the proper function
+    const projectsAction = new Gio.SimpleAction({name: 'projects'});
+    projectsAction.connect('activate', () => this.editprojectdialog());
+    this.add_action(projectsAction);
 
     // Connecting the project model to projectlist
     this._projectlist.expression = listexpression;
@@ -269,11 +274,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
     */
 
-    // Connecting the edit project button with the proper function
+    /* Connecting the edit project button with the proper function
     this._editproject.connect("clicked", () => {
       this.editprojectdialog();
     });
-
+*/
     // Connecting the search entry with searching the log
     this._search_entry.connect("search-changed", () => {
       const searchText = this._search_entry.get_text();
@@ -708,6 +713,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       startb.label = this.datetotext(startDate);
       if (endDate !== null) {
         endb.label = this.datetotext(endDate);
+      } else {
+        endb.label = "Still Logging\nNo date or time yet."
       }
     } else {
       const now = new Date();
@@ -894,7 +901,8 @@ export const TimeTrackerWindow = GObject.registerClass({
     return listRow;
   }
 
-  // Replace the current projects with the given projects in the array. If a project was selected already, try to select that same project when the projectlist reloads.
+  // Replace the current projects with the given projects in the array.
+  // If a project was selected already, try to select that same project when the projectlist reloads.
   async setprojects(projectArray = []) {
     const selection = this._projectlist.get_selected();
     let theproject = "";
@@ -946,6 +954,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     clearInterval(timer);
     currentTimer = -1;
     this._startbutton.label = "Start";
+    let style = this._startbutton.get_style_context();
+    if (style.has_class("destructive-action")) {
+      style.remove_class("destructive-action");
+    }
+    style.add_class("suggested-action");
     this.setTimerText();
 
     try {
@@ -981,6 +994,11 @@ export const TimeTrackerWindow = GObject.registerClass({
   async startTimer(number, startDate) {
     logging = true;
     this._startbutton.label = "Stop";
+    let style = this._startbutton.get_style_context();
+    if (style.has_class("suggested-action")) {
+      style.remove_class("suggested-action");
+    }
+    style.add_class("destructive-action");
     startedTime = startDate;
     this.setTimerText();
     timer = setInterval(() => this.setTimerText(), 1000);
@@ -1122,36 +1140,55 @@ export const TimeTrackerWindow = GObject.registerClass({
       orientation: 1,
       spacing: 6,
     });
-    const buttonbox = new Gtk.Box({
+    const topbox = new Gtk.Box({
       orientation: 0,
-      spacing: 12,
+      spacing: 6,
     });
-    box.append(buttonbox);
+    box.append(topbox);
+    const bottombox = new Gtk.Box({
+      orientation: 1,
+      spacing: 6,
+    });
+    box.append(bottombox);
+    const buttonbox = new Gtk.Box({
+      orientation: 1,
+      spacing: 12,
+      valign: 3,
+    });
+    //const s1 = new Gtk.Separator();
+    //box.append(s1);
     const datebox = new Gtk.Box({
       orientation: 0,
-      spacing: 12,
+      valign: 3,
+      spacing: 0,
     });
-    box.append(datebox);
+    topbox.append(datebox);
+    //const s2 = new Gtk.Separator();
+    //box.append(s2);
+    /*
+    const monthbox = new Gtk.Box({
+      orientation: 1,
+      valign: 3,
+      spacing: 3,
+    });
+    datebox.append(monthbox);
+    */
     const timebox = new Gtk.Box({
       orientation: 0,
-      spacing: 12,
+      spacing: 0,
     });
-    box.append(timebox);
     const monthlist = new Gtk.DropDown({
       enable_search: true,
+      width_request: 120
     });
-    const hmbox = new Gtk.Box({
+    const dayspin = new Gtk.SpinButton({
       orientation: 1,
-      spacing: 6,
+      width_request: 35
     });
-    timebox.append(hmbox);
-    const secondbox = new Gtk.Box({
+    const yearspin = new Gtk.SpinButton({
       orientation: 1,
-      spacing: 6,
+      width_request: 60
     });
-    timebox.append(secondbox);
-    const dayspin = new Adw.SpinRow();
-    const yearspin = new Adw.SpinRow();
     const hourminuteentry = new Gtk.Entry();
     const hourminutelabel = new Gtk.Label();
     const secondentry = new Gtk.Entry();
@@ -1161,6 +1198,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     const am = new Gtk.ToggleButton;
     const pm = new Gtk.ToggleButton;
+    let timestyle = timebox.get_style_context();
+    timestyle.add_class("linked");
+    let datestyle = datebox.get_style_context();
+    datestyle.add_class("linked");
 
     todaybutton.label = "Today";
     todaybutton.connect("clicked", () => {
@@ -1215,6 +1256,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (inputhour >= 13) {
         inputhour -= 12;
         pm.set_active(true);
+      } else if (inputhour == 12) {
+        pm.set_active(true);
+      } else if (inputhour == 0) {
+        inputhour = 12;
+        am.set_active(true);
       } else {
         am.set_active(true);
       }
@@ -1232,23 +1278,30 @@ export const TimeTrackerWindow = GObject.registerClass({
     */
     secondentry.set_text(this.intto2digitstring(date.getSeconds()));
 
-    hourminutelabel.label = "Hours & Minutes, as in \"1130\"";
-    secondlabel.label = "Seconds";
+    hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
+    //secondlabel.label = "Seconds";
 
     buttonbox.append(yesterdaybutton);
     buttonbox.append(todaybutton);
+    //monthbox.append(monthlabel);
     datebox.append(monthlist);
+    topbox.append(buttonbox);
     datebox.append(dayspin);
     datebox.append(yearspin);
-    hmbox.append(hourminutelabel);
-    hmbox.append(hourminuteentry);
-    secondbox.append(secondlabel);
-    secondbox.append(secondentry);
+    //hmbox.append(hourminutelabel);
+    timebox.append(hourminuteentry);
+    //secondbox.append(secondlabel);
+    timebox.append(secondentry);
+    bottombox.append(hourminutelabel);
+    bottombox.append(timebox);
     if (ampm) {
-      am.label = "AM";
-      pm.label = "PM";
       timebox.append(am);
       timebox.append(pm);
+      am.label = "AM";
+      pm.label = "PM";
+      const ampmseparator = new Gtk.Separator();
+      //box.append(ampmseparator);
+      //box.append(ampmbox);
       am.connect("toggled", () => {
         if (am.get_active()) {
           pm.set_active(false);
@@ -1286,8 +1339,12 @@ export const TimeTrackerWindow = GObject.registerClass({
         chosendate.setMinutes(minute);
         chosendate.setSeconds(parseInt(secondentry.get_text()));
         chosendate.setMilliseconds(0);
-        if (ampm && pm.get_active() && hour > 0 && hour < 12) {
-          chosendate.setHours(chosendate.getHours() + 12);
+        if (ampm) {
+          if (pm.get_active() && hour > 0 && hour < 12) {
+            chosendate.setHours(chosendate.getHours() + 12);
+          } else if (am.get_active() && hour == 12) {
+            chosendate.setHours(0);
+          }
         }
         console.log("Selected date: " + chosendate);
 
@@ -1428,7 +1485,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         // Start timer
         if (latestStartIndex > -1) {
           this.startTimer(latestStartIndex, latestStartDate);
-          this._startbutton.label = "Stop";
         }
         // Start sync timer
         this.setsynctimer();
@@ -1520,12 +1576,18 @@ export const TimeTrackerWindow = GObject.registerClass({
           projectString += projects[projects.length - 1];
           this._settings.set_string("projects", projectString);
         }
-        /*
-        let projectindex = projects.indexOf(latestStartProject);
-        if (projectindex !== -1) {
-          this._projectlist.set_selected(projectindex);
+
+        // Find out what project the current entry has, and set projectlist to match
+        if (currentTimer > -1) {
+          let proj = entries[currentTimer].project;
+          if (proj != "(no project)") {
+            let projectindex = projects.indexOf(proj);
+            if (projectindex !== -1) {
+              nochange = true;
+              this._projectlist.set_selected(projectindex);
+            }
+          }
         }
-        */
       } catch (e) {
         console.log(e);
       }
