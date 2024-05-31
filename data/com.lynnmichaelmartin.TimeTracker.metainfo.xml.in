@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop">
   <name>Time Tracker</name>
-  <summary>A simple time-tracker program that can sync with local and cloud files.</summary>
+  <summary>A time-tracker program that can sync with local and cloud files.</summary>
 	<id>com.lynnmichaelmartin.TimeTracker.desktop</id>
 	<metadata_license>CC0-1.0</metadata_license>
 	<project_license>MIT-0</project_license>
@@ -12,30 +12,19 @@
 	<description>
     <p>A simple time-tracker program for GNOME. Instead of using online-first options like Toggl and Clockify, use a lightning-fast local-first option that is still able to sync with multiple computers via cloud or network storage.</p>
     <p>Time Tracker allows you to track different projects, see how much time you've spent on each project, and sync with a local file or a file in your own cloud storage. You can also open your sync file in spreadsheet software (since it's a CSV file).</p>
-    <p>Tracking:</p>
-    <ul>
-    <li>Track the amount of time spent on different projects.</li>
-    <li>Save the timer so that when Time Tracker is closed and reopened, it will continue tracking the same project, including the time while Time Tracker was closed.</li>
-    </ul>
-    <p>Syncing:</p>
-    <ul>
-    <li>Sync with a local file somewhere in your home directory or just in the app's own system directory.</li>
-    <li>Or sync with a file in your cloud storage (if mounted in home directory).</li>
-    </ul>
-    <p>Reporting:</p>
-    <ul>
-    <li>See how much time you've spent on each project today, this week, and last week.</li>
-    </ul>
-    <p>Backups:</p>
-    <ul>
-    <li>Automatically save daily backups and keep a user-specified number of past backups.</li>
-    </ul>
-    <p>Preferences:</p>
-    <ul>
-    <li>Set preferred first day of week for reporting purposes.</li>
-    <li>Set how frequently Time Tracker autosaves.</li>
-    <li>Set how many daily backups you want Time Tracker to keep.</li>
-    <li>Set whether to use 24-hour format or 12-hour (AM/PM) format.</li>
-    </ul>
 	</description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/Screenshots/Screenshot%20from%202024-05-30%2020-49-58.png</image>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/Screenshots/Screenshot%20from%202024-05-30%2020-51-13.png</image>
+    </screenshot>
+  </screenshots>
+   <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.1.2" date="2024-05-30">
+    </release>
+  </releases>
+  <url type="homepage">https://github.com/elvishcraftsman/time-tracker</url>
 </component>
