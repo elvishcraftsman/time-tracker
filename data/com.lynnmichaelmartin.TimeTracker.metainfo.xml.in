@@ -2,7 +2,7 @@
 <component type="desktop">
   <name>Time Tracker</name>
   <summary>A time-tracker program that can sync with local and cloud files.</summary>
-	<id>com.lynnmichaelmartin.TimeTracker.desktop</id>
+	<id>com.lynnmichaelmartin.TimeTracker</id>
 	<metadata_license>CC0-1.0</metadata_license>
 	<project_license>MIT-0</project_license>
   <developer id="com.lynnmichaelmartin">
@@ -15,9 +15,11 @@
 	</description>
   <screenshots>
     <screenshot type="default">
+      <caption>Tracking time by project</caption>
       <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/Screenshots/Screenshot%20from%202024-05-30%2020-49-58.png</image>
     </screenshot>
     <screenshot>
+      <caption>Viewing how much time was spent per project</caption>
       <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/Screenshots/Screenshot%20from%202024-05-30%2020-51-13.png</image>
     </screenshot>
   </screenshots>
