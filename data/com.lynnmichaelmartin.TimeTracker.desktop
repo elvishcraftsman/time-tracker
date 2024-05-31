@@ -5,7 +5,6 @@ Exec=com.lynnmichaelmartin.TimeTracker
 Icon=com.lynnmichaelmartin.TimeTracker
 Terminal=false
 Type=Application
-Categories=GTK;
 StartupNotify=true
 Comment=A time-tracker program that can sync with local and cloud files.
 Categories=Office;Calendar;
