@@ -31,5 +31,8 @@
     <key name="ampmformat" type="b">
       <default>false</default>
     </key>
+    <key name="autotemplog" type="b">
+      <default>false</default>
+    </key>
 	</schema>
 </schemalist>

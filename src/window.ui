@@ -145,82 +145,91 @@
                         <property name="valign">1</property>
                         <property name="spacing">6</property>
                         <property name="orientation">1</property>
-                        <child>
-                          <object class="GtkLabel">
-                            <property name="label">Today</property>
-                            <style>
-                              <class name="title-1"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel" id="todaylabel">
-                            <property name="label"></property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel">
-                            <property name="label">This Week</property>
-                            <property name="margin-top">24</property>
-                            <style>
-                              <class name="title-1"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel" id="thisweeklabel">
-                            <property name="label"></property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel">
-                            <property name="label">Last Week</property>
-                            <property name="margin-top">24</property>
-                            <style>
-                              <class name="title-1"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel" id="lastweeklabel">
-                            <property name="label"></property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel">
-                            <property name="label">Custom</property>
-                            <property name="margin-top">24</property>
-                            <style>
-                              <class name="title-1"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkBox">
-                            <property name="orientation">0</property>
-                            <property name="halign">3</property>
-                            <property name="margin-top">6</property>
-                            <property name="margin-bottom">6</property>
-                            <style>
-                              <class name="linked"/>
-                            </style>
-                            <child>
-                              <object class="GtkButton" id="reportstart">
-                                <property name="label">Start</property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkButton" id="reportend">
-                                <property name="label">End</property>
-                              </object>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkLabel" id="customlabel">
-                            <property name="label"></property>
-                          </object>
-                        </child>
+                          <child>
+                            <object class="GtkStackSwitcher" id="navigation_widget2">
+                              <property name="stack">stack2</property>
+                            </object>
+                          </child>
+                          <child>
+                            <object class="GtkStack" id="stack2">
+                              <child>
+                                <object class="GtkStackPage" id="presetpage">
+                                  <property name="title" translatable="true">Preset</property>
+                                  <property name="child">
+                                    <object class="AdwStatusPage">
+                                      <child>
+                                        <object class="GtkBox" id="reports">
+                                          <property name="orientation">1</property>
+                                          <property name="halign">3</property>
+                                          <property name="margin-top">6</property>
+                                        </object>
+                                      </child>
+                                    </object>
+                                  </property>
+                                </object>
+                              </child>
+                              <child>
+                                <object class="GtkStackPage" id="custompage">
+                                  <property name="title" translatable="true">Custom</property>
+                                  <property name="child">
+                                    <object class="AdwStatusPage">
+                                      <property name="title" translatable="true">Custom</property>
+                                      <property name="description" translatable="true">Create a custom report.</property>
+                                      <child>
+                                        <object class="GtkBox" id="customreport">
+                                          <property name="orientation">1</property>
+                                          <property name="halign">3</property>
+                                          <child>
+                                            <object class="GtkBox">
+                                              <property name="orientation">0</property>
+                                              <property name="halign">3</property>
+                                              <property name="margin-top">6</property>
+                                              <property name="margin-bottom">6</property>
+                                              <style>
+                                                <class name="linked"/>
+                                              </style>
+                                              <child>
+                                                <object class="GtkButton" id="reportstart">
+                                                  <property name="label">Start Time</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkButton" id="reportend">
+                                                  <property name="label">End Time</property>
+                                                </object>
+                                              </child>
+                                            </object>
+                                          </child>
+                                          <child>
+                                            <object class="GtkBox">
+                                              <style>
+                                                <class name="linked"/>
+                                              </style>
+                                              <child>
+                                                <object class="GtkButton" id="reportproject">
+                                                  <property name="label">Project</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkButton" id="reportbilled">
+                                                  <property name="label">Billed Status</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkButton" id="reportgroup">
+                                                  <property name="label">Grouping</property>
+                                                </object>
+                                              </child>
+                                            </object>
+                                          </child>
+                                        </object>
+                                      </child>
+                                    </object>
+                                  </property>
+                                </object>
+                              </child>
+                            </object>
+                          </child>
                       </object>
                     </property>
                   </object>
@@ -235,12 +244,28 @@
     <menu id="primary_menu">
     <section>
       <item>
+        <attribute name="label" translatable="yes">_Undo</attribute>
+        <attribute name="action">win.undo</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Redo</attribute>
+        <attribute name="action">win.redo</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
         <attribute name="label" translatable="yes">_New CSV Log File</attribute>
         <attribute name="action">win.new</attribute>
       </item>
       <item>
         <attribute name="label" translatable="yes">_Open CSV Log File</attribute>
         <attribute name="action">win.open</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_Import CSV Log File</attribute>
+        <attribute name="action">win.import</attribute>
       </item>
     </section>
     <section>
