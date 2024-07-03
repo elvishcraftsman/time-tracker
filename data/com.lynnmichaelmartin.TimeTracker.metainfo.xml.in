@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop">
   <name>Time Tracker</name>
-  <summary>A time-tracker program that can sync with local and cloud files.</summary>
+  <summary>Track and sync time, local-first</summary>
 	<id>com.lynnmichaelmartin.TimeTracker</id>
 	<metadata_license>CC0-1.0</metadata_license>
 	<project_license>MIT-0</project_license>
@@ -23,9 +23,13 @@
       <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/data/screenshots/reporting.png</image>
     </screenshot>
   </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#dc8add</color>
+    <color type="primary" scheme_preference="dark">#9141ac</color>
+  </branding>
    <content_rating type="oars-1.1" />
   <releases>
-    <release version="1.1.5" date="2024-06-01">
+    <release version="1.1.6" date="2024-06-03">
     </release>
   </releases>
   <url type="homepage">https://github.com/elvishcraftsman/time-tracker</url>
