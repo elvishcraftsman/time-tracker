@@ -29,7 +29,7 @@
   </branding>
    <content_rating type="oars-1.1" />
   <releases>
-    <release version="1.1.6" date="2024-06-03">
+    <release version="1.1.7" date="2024-06-03">
     </release>
   </releases>
   <url type="homepage">https://github.com/elvishcraftsman/time-tracker</url>
