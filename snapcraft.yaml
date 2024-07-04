@@ -1,0 +1,34 @@
+name: time-tracker
+grade: stable
+adopt-info: time-tracker
+license: MIT-0
+
+base: core22
+confinement: devmode
+
+apps:
+  time-tracker:
+    extensions: [gnome]
+    command: usr/bin/time-tracker
+    desktop: usr/share/applications/com.lynnmichaelmartin.TimeTracker.desktop
+    common-id: com.lynnmichaelmartin.TimeTracker.desktop
+    plugs:
+      - gsettings
+      - personal-files
+
+parts:
+  time-tracker:
+    source: https://github.com/elvishcraftsman/time-tracker.git
+    source-tag: 'v1.1.6'
+    source-type: git
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    parse-info: [usr/share/metainfo/com.lynnmichaelmartin.TimeTracker.metainfo.xml]
+
+slots:
+  time-tracker:
+    interface: dbus
+    bus: session
+    name: com.lynnmichaelmartin.TimeTracker

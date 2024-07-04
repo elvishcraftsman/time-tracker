@@ -143,7 +143,6 @@
                     <property name="child">
                       <object class="GtkBox">
                         <property name="valign">1</property>
-                        <property name="spacing">6</property>
                         <property name="orientation">1</property>
                           <child>
                             <object class="GtkStackSwitcher" id="navigation_widget2">
@@ -161,7 +160,6 @@
                                         <object class="GtkBox" id="reports">
                                           <property name="orientation">1</property>
                                           <property name="halign">3</property>
-                                          <property name="margin-top">6</property>
                                         </object>
                                       </child>
                                     </object>
@@ -173,8 +171,6 @@
                                   <property name="title" translatable="true">Custom</property>
                                   <property name="child">
                                     <object class="AdwStatusPage">
-                                      <property name="title" translatable="true">Custom</property>
-                                      <property name="description" translatable="true">Create a custom report.</property>
                                       <child>
                                         <object class="GtkBox" id="customreport">
                                           <property name="orientation">1</property>

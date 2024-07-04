@@ -260,17 +260,25 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._reportstart.connect("clicked", () => {
       this.datedialog(customstart, (date) => {
         customstart = date;
-        this._reportstart.label = this.datetotext(date);
+        if (date) {
+          this._reportstart.label = this.datetotext(date);
+        } else {
+          this._reportstart.label = "Start Time";
+        }
         this.displaycustomfilter();
-      });
+      }, null, true);
     });
 
     this._reportend.connect("clicked", () => {
       this.datedialog(customend, (date) => {
         customend = date;
-        this._reportend.label = this.datetotext(date);
+        if (date) {
+          this._reportend.label = this.datetotext(date);
+        } else {
+          this._reportend.label = "End Time";
+        }
         this.displaycustomfilter();
-      });
+      }, null, true);
     });
 
     this._reportproject.connect("clicked", () => {
@@ -518,6 +526,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             console.log(errormessage);
             this.alert(errormessage);
           } else {
+            this.stopsynctimer()
             logpath = file.get_path();
 
             // Default to CSV suffix if none chosen
@@ -716,6 +725,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             console.log(errormessage);
             this.alert(errormessage);
           } else {
+            this.stopsynctimer()
             logpath = file.get_path();
             // Make sure it resets everything when reading the new file
             sync_firsttime = true;
@@ -908,7 +918,8 @@ export const TimeTrackerWindow = GObject.registerClass({
   async stoprunningentry(endDate) {
     try {
       let current = this.currentTimer();
-      if (current) {
+      console.log("Current timer is # " + current + ", ID: " + currentTimer);
+      if (current != null) { // Set as this rather than if (current), to fix a difference in the way Mint Cinnamon is parsing JS
         this.editentry_user(
           current,
           entries[current].project,
@@ -1185,6 +1196,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async editentry_user(number, theproject, startDate, endDate, billed, writeout = true) {
+    console.log("Preparing to edit " + number);
 
     // Note the change in the sync_change array
     sync_changes.push({
@@ -1205,6 +1217,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Edit the given entry in the entries array and the log control
   async editentrybyIndex(number, theproject, startDate, endDate, billed, writeout = true) {
+    console.log("Again, preparing to edit " + number);
     // Stop the timer if the entry didn't have an end date, but does now
     if (entries[number].end == null && endDate != null) {
       this.stopTimer();
@@ -1344,7 +1357,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async startstop() {
     const currentDate = new Date();
 
-    //console.log("Is timer on? " + logging.toString());
+    console.log("Is timer on? " + logging.toString());
     if (logging) {
       this.stoprunningentry(currentDate);
     } else {
@@ -1377,11 +1390,15 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // When called, set the value for the timer to the correct value
   async setTimerText() {
-    if (logging) {
-      const currentDate = new Date();
-      this._status.label = this.calcTimeDifference(startedTime, currentDate);
-    } else {
-      this._status.label = "00:00:00";
+    try {
+      if (logging) {
+        const currentDate = new Date();
+        this._status.label = this.calcTimeDifference(startedTime, currentDate);
+      } else {
+        this._status.label = "00:00:00";
+      }
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -1409,6 +1426,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     this.setTimerText();
     timer = setInterval(() => this.setTimerText(), 1000);
     currentTimer = entries[number].ID;
+    console.log("Started entry # " + number + ", ID is " + currentTimer);
     //console.log("Timer has been started.");
   }
 
@@ -1482,6 +1500,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
       this._reportsbox = new Gtk.Box({
         orientation: 1,
+        spacing: 12,
       });
       this._reports.append(this._reportsbox);
 
@@ -1576,6 +1595,12 @@ export const TimeTrackerWindow = GObject.registerClass({
         });
       }
 
+      output.box = new Gtk.Box({
+        orientation: 1,
+      });
+      let boxstyle = output.box.get_style_context();
+      boxstyle.add_class("linked");
+
       output.buttons.push(new Gtk.Button({
         label: "Total: " + duration,
       }));
@@ -1623,8 +1648,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (usedescription) {
         widget.append(filters[filterslength].desc);
       }
+      widget.append(filters[filterslength].box);
       for (let i = 0; i < filters[filterslength].buttons.length; i ++) {
-        widget.append(filters[filterslength].buttons[i]);
+        filters[filterslength].box.append(filters[filterslength].buttons[i]);
         let thefilter = filters[filterslength];
         filters[filterslength].buttons[i].connect("clicked", () => {
           this.bulkeditdialog(thefilter, i);
@@ -1762,6 +1788,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   async bulkeditentries(entrygroup, newproject, newbilled, startDate = null, endDate = null) {
     try {
+
+      // Clear undo and redo record, since it's not sophisticated enough yet to deal with bulk editing
+      sync_changes = [];
+
       // console.log(newproject + " " + newbilled);
       // console.log(entrygroup);
       if (newproject || newbilled != null) {
@@ -2113,7 +2143,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async datedialog(date = new Date(), tocall = null, body = "", ampm = ampmformat) {
+  async datedialog(date = new Date(), tocall = null, body = null, allownodate = false, ampm = ampmformat) {
     if (!date || isNaN(date)) {
       date = new Date();
     }
@@ -2123,11 +2153,15 @@ export const TimeTrackerWindow = GObject.registerClass({
       close_response: "cancel",
     });
 
-    if (body != "") {
+    if (body) {
       dialog.body = body;
     }
 
     dialog.add_response("cancel", "Cancel");
+    if (allownodate) {
+      dialog.add_response("none", "No Date");
+      dialog.set_response_appearance("none", Adw.ResponseAppearance.DESTRUCTIVE);
+    }
     dialog.add_response("okay", "OK");
 
     dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
@@ -2304,8 +2338,15 @@ export const TimeTrackerWindow = GObject.registerClass({
     dialog.connect("response", (_, response_id) => {
       if (response_id === "okay") {
         let chosendate = new Date();
-        let hour = Math.floor(parseInt(hourminuteentry.get_text()) / 100);
-        let minute = hourminuteentry.get_text() - (hour * 100);
+        let hourminute = hourminuteentry.get_text();
+        let hour = 0;
+        let minute = 0;
+        if (hourminute.length > 2) {
+          hour = Math.floor(parseInt(hourminute) / 100);
+          minute = parseInt(hourminute) - (hour * 100);
+        } else {
+          hour = parseInt(hourminute);
+        }
         let second = parseInt(secondentry.get_text());
         if (isNaN(second)) {
           second = 0;
@@ -2335,6 +2376,12 @@ export const TimeTrackerWindow = GObject.registerClass({
             tocall(chosendate);
           }
         }
+        return chosendate;
+      } else if (response_id == "none") {
+        if (tocall && typeof tocall === 'function') {
+          tocall(null);
+        }
+        return null;
       }
     });
 

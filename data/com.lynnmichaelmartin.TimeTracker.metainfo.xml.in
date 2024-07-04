@@ -24,8 +24,8 @@
     </screenshot>
   </screenshots>
   <branding>
-    <color type="primary" scheme_preference="light">#dc8add</color>
-    <color type="primary" scheme_preference="dark">#9141ac</color>
+    <color type="primary" scheme_preference="light">#e5a50a</color>
+    <color type="primary" scheme_preference="dark">#915800</color>
   </branding>
    <content_rating type="oars-1.1" />
   <releases>
