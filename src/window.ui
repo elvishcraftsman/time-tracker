@@ -65,7 +65,7 @@
                             <property name="valign">3</property>
                             <property name="halign">3</property>
                             <property name="margin-top">24</property>
-                            <property name="margin-bottom">24</property>
+                            <property name="margin-bottom">12</property>
                             <property name="spacing">20</property>
                             <child>
                               <object class="GtkDropDown" id="projectlist">
@@ -86,6 +86,12 @@
                                 </style>
                               </object>
                             </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkEntry" id="metaentry">
+                            <property name="placeholder-text">Description #tags</property>
+                            <property name="margin-bottom">24</property>
                           </object>
                         </child>
                         <child>

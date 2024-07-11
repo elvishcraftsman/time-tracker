@@ -150,7 +150,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   InternalChildren: ['status', 'startbutton', 'projectlist',
   'list_box_editable', 'add', 'search_entry', 'reports', 'toast_overlay',
   'customreport', 'reportstart', 'reportend', 'reportproject', 'reportbilled',
-  'reportgroup'],
+  'reportgroup', 'metaentry'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -393,7 +393,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             // Undo that item
             if (change.change == "delete" || change.change == "edit") {
               //console.log("editing");
-              this.editentrybyID(change.ID, change.oldproject, change.oldstart, change.oldend, change.oldbilled);
+              this.editentrybyID(change.ID, change.oldproject, change.oldstart, change.oldend, change.oldbilled, change.oldmeta);
             } else {
               //console.log("deleting");
               // Change was an addition
@@ -424,7 +424,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             let change = sync_changes[j];
             // Redo j
             if (change.change == "add" || change.change == "edit") {
-              this.editentrybyID(change.ID, change.project, change.start, change.end, change.billed);
+              this.editentrybyID(change.ID, change.project, change.start, change.end, change.billed, change.meta);
             } else {
               this.removeentrybyID(change.ID);
             }
@@ -750,7 +750,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Convert the log array into CSV format
   async writelog(filepath = logpath, notify = true) {
-    let entriesString = "Project,Start Time,End Time,ID,Duration (Readable),Duration (Seconds),Billed";
+    let entriesString = "Project,Start Time,End Time,Description,ID,Duration (Readable),Duration (Seconds),Billed";
 
     if (sync_extracolumns.length > 0) {
       for (let i = 0; i < sync_extracolumns.length; i++) {
@@ -762,6 +762,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       let project = "";
       let start = "";
       let end = "";
+      let meta = "";
       let duration = "";
       let seconds = "";
       let ID = 0;
@@ -782,10 +783,13 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (entries[i].billed == true) {
           billed = true;
         }
+        if (entries[i].meta) {
+          meta = entries[i].meta;
+        }
       } catch (e) {
         console.log(e);
       }
-      entriesString += '\n' + project + "," + start + "," + end + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+      entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
 
       if (sync_extracolumns.length > 0) {
         for (let j = 0; j < sync_extracolumns.length; j++) {
@@ -883,6 +887,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       oldstart: entries[number].start,
       oldend: entries[number].end,
       oldbilled: entries[number].billed,
+      oldmeta: entries[number].meta,
     });
 
     this.removeentrybyIndex(number, writeout);
@@ -926,6 +931,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           entries[current].start,
           endDate,
           entries[current].billed,
+          entries[current].meta,
         );
         changestobemade = true;
       }
@@ -942,175 +948,194 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (theproject == "") {
         theproject = entries[current].project;
       }
-      this.editentry_user(current, theproject, entries[current].start, null, entries[current].billed);
+      this.editentry_user(current, theproject, entries[current].start, null, entries[current].billed, entries[current].meta);
     }
   }
 
   // The dialog to be used when a user wishes to add or edit an entry manually.
   // Use no arguments if adding an entry, if editing, give the index number
   async editentrydialog(number = -1, body = "") {
-    let theproject = "";
-    let startDate = new Date();
-    let endDate = new Date();
-    let billed = false;
+    try {
+      let theproject = "";
+      let startDate = new Date();
+      let endDate = new Date();
+      let billed = false;
+      let meta = null;
 
-    const dialog = new Adw.AlertDialog({
-      heading: "Add Entry",
-      close_response: "cancel",
-    });
-
-    if (body != "") {
-      dialog.body = body;
-    }
-
-    dialog.add_response("cancel", "Cancel");
-    if (number > -1) {
-      startDate = entries[number].start;
-      endDate = entries[number].end;
-      billed = entries[number].billed;
-      dialog.heading = "Edit Entry";
-      dialog.add_response("delete", "Delete");
-      dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
-    }
-    dialog.add_response("okay", "OK");
-    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
-
-    const box = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
-
-    const projectlist2 = new Gtk.DropDown({
-      enable_search: true,
-    });
-    projectlist2.expression = listexpression;
-    projectlist2.model = model;
-    box.append(projectlist2);
-
-    const box0 = new Gtk.Box({
-      orientation: 0,
-      spacing: 12,
-    });
-    box.append(box0);
-
-    const box1 = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
-    box0.append(box1);
-
-    const box2 = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
-    box0.append(box2);
-
-    const startlabel = new Gtk.Label();
-    startlabel.label = "Start Time";
-    box1.append(startlabel);
-
-    const endlabel = new Gtk.Label();
-    endlabel.label = "End Time";
-    box2.append(endlabel);
-
-    const startb = new Gtk.Button();
-    startb.connect("clicked", () => {
-      this.datedialog(startDate, (date) => {
-        startDate = date;
-        startb.label = this.datetotext(date);
+      const dialog = new Adw.AlertDialog({
+        heading: "Add Entry",
+        close_response: "cancel",
       });
-    });
-    box1.append(startb);
 
-    const endb = new Gtk.Button();
-    endb.connect("clicked", () => {
-      if (endDate != null) {
-        this.datedialog(endDate, (date) => {
-          endDate = date;
-          endb.label = this.datetotext(date);
+      if (body != "") {
+        dialog.body = body;
+      }
+
+      dialog.add_response("cancel", "Cancel");
+      if (number > -1) {
+        startDate = entries[number].start;
+        endDate = entries[number].end;
+        billed = entries[number].billed;
+        meta = entries[number].meta;
+        dialog.heading = "Edit Entry";
+        dialog.add_response("delete", "Delete");
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
+      }
+      dialog.add_response("okay", "OK");
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+
+      const projectlist2 = new Gtk.DropDown({
+        enable_search: true,
+      });
+      projectlist2.expression = listexpression;
+      projectlist2.model = model;
+      box.append(projectlist2);
+
+      const metaentry2 = new Gtk.Entry({
+        placeholder_text: "Description #tags",
+      });
+      if (meta) {
+        metaentry2.set_text(meta);
+      }
+      box.append(metaentry2);
+
+      const box0 = new Gtk.Box({
+        orientation: 0,
+        spacing: 12,
+      });
+      box.append(box0);
+
+      const box1 = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      box0.append(box1);
+
+      const box2 = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      box0.append(box2);
+
+      const startlabel = new Gtk.Label();
+      startlabel.label = "Start Time";
+      box1.append(startlabel);
+
+      const endlabel = new Gtk.Label();
+      endlabel.label = "End Time";
+      box2.append(endlabel);
+
+      const startb = new Gtk.Button();
+      startb.connect("clicked", () => {
+        this.datedialog(startDate, (date) => {
+          startDate = date;
+          startb.label = this.datetotext(date);
         });
-      } else {
-        this.datedialog(new Date(), (date) => {
-          endDate = date;
-          endb.label = this.datetotext(date);
-        });
-      }
-    });
-    box2.append(endb);
+      });
+      box1.append(startb);
 
-    if (number != -1) {
-      theproject = entries[number].project;
-      // Set the selected project correctly
-      let projectindex = projects.indexOf(theproject);
-      if (projectindex !== -1) {
-        projectlist2.set_selected(projectindex);
-      }
-
-      startb.label = this.datetotext(startDate);
-      if (endDate !== null) {
-        endb.label = this.datetotext(endDate);
-      } else {
-        endb.label = "Still Logging\nNo date or time yet."
-      }
-    } else {
-      const now = new Date();
-      startb.label = this.datetotext(now);
-      endb.label = this.datetotext(now);
-    }
-
-    const billedb = new Gtk.CheckButton({
-      active: false,
-      label: "This entry has been billed.",
-    });
-    if (billed == true) {
-      billedb.set_active(true);
-    }
-    box.append(billedb);
-
-    dialog.set_extra_child(box);
-
-    dialog.connect("response", (_, response_id) => {
-      if (response_id === "okay") {
-        let validated = "";
-
-        if (endDate !== null && startDate > endDate) {
-          validated += "End date is earlier than start date.";
-        } else if (endDate == null && startDate > new Date()) {
-          validated += "Start date is in the future.";
-        }
-
-        if (validated == "") {
-          const selection = projectlist2.selected_item;
-          const value = selection.value;
-          if (selection) {
-            theproject = value;
-            nochange = true;
-            this._projectlist.set_selected(projectlist2.get_selected());
-            nochange = false;
-          }
-          if (number == -1) {
-            console.log("Adding " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active())
-            this.addentry_user(theproject, startDate, endDate, billedb.get_active());
-          } else {
-            console.log("Editing " + number + " " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active())
-            this.editentry_user(number, theproject, startDate, endDate, billedb.get_active());
-          }
-          if (this.currentTimer() == number && endDate == null) {
-            startedTime = startDate; // Update the currently running entry
-          }
+      const endb = new Gtk.Button();
+      endb.connect("clicked", () => {
+        if (endDate != null) {
+          this.datedialog(endDate, (date) => {
+            endDate = date;
+            endb.label = this.datetotext(date);
+          });
         } else {
-          this.editentrydialog(
-            number,
-            "Your response was invalid. Reason: " + validated,
-          );
+          this.datedialog(new Date(), (date) => {
+            endDate = date;
+            endb.label = this.datetotext(date);
+          });
         }
-      } else if (response_id === "delete") {
-        this.removeentry_user(number);
-        this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
-      }
-    });
+      });
+      box2.append(endb);
 
-    dialog.present(this);
+      if (number != -1) {
+        theproject = entries[number].project;
+        // Set the selected project correctly
+        let projectindex = projects.indexOf(theproject);
+        if (projectindex !== -1) {
+          projectlist2.set_selected(projectindex);
+        }
+
+        startb.label = this.datetotext(startDate);
+        if (endDate !== null) {
+          endb.label = this.datetotext(endDate);
+        } else {
+          endb.label = "Still Logging\nNo date or time yet."
+        }
+      } else {
+        const now = new Date();
+        startb.label = this.datetotext(now);
+        endb.label = this.datetotext(now);
+      }
+
+      const billedb = new Gtk.CheckButton({
+        active: false,
+        label: "This entry has been billed.",
+      });
+      if (billed == true) {
+        billedb.set_active(true);
+      }
+      box.append(billedb);
+
+      dialog.set_extra_child(box);
+
+      dialog.connect("response", (_, response_id) => {
+        if (response_id === "okay") {
+          let validated = "";
+
+          if (endDate !== null && startDate > endDate) {
+            validated += "End date is earlier than start date.";
+          } else if (endDate == null && startDate > new Date()) {
+            validated += "Start date is in the future.";
+          }
+
+          if (validated == "") {
+            const selection = projectlist2.selected_item;
+            const value = selection.value;
+            if (selection) {
+              theproject = value;
+              nochange = true;
+              this._projectlist.set_selected(projectlist2.get_selected());
+              nochange = false;
+            }
+            if (metaentry2.get_text() != "") {
+              meta = metaentry2.get_text();
+            } else {
+              meta = null;
+            }
+            if (number == -1) {
+              console.log("Adding " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
+              this.addentry_user(theproject, meta, startDate, endDate, billedb.get_active());
+            } else {
+              console.log("Editing " + number + " " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
+              this.editentry_user(number, theproject, startDate, endDate, billedb.get_active(), meta);
+            }
+            if (this.currentTimer() == number && endDate == null) {
+              startedTime = startDate; // Update the currently running entry
+            }
+          } else {
+            this.editentrydialog(
+              number,
+              "Your response was invalid. Reason: " + validated,
+            );
+          }
+        } else if (response_id === "delete") {
+          this.removeentry_user(number);
+          this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
+        }
+      });
+
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   // Present a dialog where the user can edit the projects that show in the projectlist
@@ -1173,12 +1198,12 @@ export const TimeTrackerWindow = GObject.registerClass({
     dialog.present(this);
   }
 
-  async editentrybyID(ID, project, start, end, billed) {
+  async editentrybyID(ID, project, start, end, billed, meta) {
     const foundItem = entries.find(item => item.ID === ID);
     //console.log(foundItem);
     if (foundItem) {
       // Edit the entry
-      this.editentrybyIndex(entries.indexOf(foundItem), project, start, end, billed);
+      this.editentrybyIndex(entries.indexOf(foundItem), project, start, end, billed, meta);
     } else {
       // Remove the entry from sync_extraentries
       const foundDeletion = sync_extraentries.find(item => item.ID === ID);
@@ -1186,7 +1211,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         sync_extraentries.splice(sync_extraentries.indexOf(foundDeletion), 1);
       }
       // Recreate the entry
-      this.addentry(project, start, end, billed, true, ID);
+      this.addentry(project, meta, start, end, billed, true, ID);
     }
   }
 
@@ -1195,7 +1220,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     return entries.indexOf(foundItem);
   }
 
-  async editentry_user(number, theproject, startDate, endDate, billed, writeout = true) {
+  async editentry_user(number, theproject, startDate, endDate, billed, meta, writeout = true) {
     console.log("Preparing to edit " + number);
 
     // Note the change in the sync_change array
@@ -1205,18 +1230,20 @@ export const TimeTrackerWindow = GObject.registerClass({
       start: startDate,
       end: endDate,
       billed: billed,
+      meta: meta,
       ID: entries[number].ID,
       oldproject: entries[number].project,
       oldstart: entries[number].start,
       oldend: entries[number].end,
       oldbilled: entries[number].billed,
+      oldmeta: entries[number].meta,
     });
     //console.log(sync_changes[sync_changes.length-1]);
-    this.editentrybyIndex(number, theproject, startDate, endDate, billed, writeout);
+    this.editentrybyIndex(number, theproject, startDate, endDate, billed, meta, writeout);
   }
 
   // Edit the given entry in the entries array and the log control
-  async editentrybyIndex(number, theproject, startDate, endDate, billed, writeout = true) {
+  async editentrybyIndex(number, theproject, startDate, endDate, billed, meta, writeout = true) {
     console.log("Again, preparing to edit " + number);
     // Stop the timer if the entry didn't have an end date, but does now
     if (entries[number].end == null && endDate != null) {
@@ -1226,26 +1253,38 @@ export const TimeTrackerWindow = GObject.registerClass({
     entries[number].start = startDate;
     entries[number].end = endDate;
     entries[number].billed = billed;
+    entries[number].meta = meta;
     let new_item = "";
     if (endDate === null) {
       if (number == this.currentTimer()) {
         new_item = "[logging] | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
       } else if (!logging) {
         new_item = "[logging] | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
         this.startTimer(number, startDate);
       } else {
         new_item = "[???????] | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
       }
     } else {
-      new_item =
-        this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+      new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+      if (meta) {
+        new_item += "\n" + meta;
+      }
       this.updatetotals();
     }
     this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
     changestobemade = writeout;
   }
 
-  async addentry_user(theproject, startDate, endDate = null, billed = false, writeout = true, ID = 0) {
+  async addentry_user(theproject, meta, startDate, endDate = null, billed = false, writeout = true, ID = 0) {
     const now = new Date();
     if (ID == 0) {
       ID = now.getTime();
@@ -1261,11 +1300,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       billed: billed,
     });
 
-    this.addentry(theproject, startDate, endDate, billed, writeout, ID)
+    this.addentry(theproject, meta, startDate, endDate, billed, writeout, ID)
   }
 
   // Add the given entry to the entries array and the log control
-  async addentry(theproject, startDate, endDate = null, billed = false, writeout = true, ID = 0, index = -1) {
+  async addentry(theproject, meta, startDate, endDate = null, billed = false, writeout = true, ID = 0, index = -1) {
     //console.log(ID);
     const now = new Date();
     if (ID == 0) {
@@ -1273,30 +1312,40 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
 
     if (index == -1 || index > entries.length) {
-      entries.push({ start: startDate, end: endDate, project: theproject, ID: ID, billed: billed });
+      entries.push({ start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
 
       let new_item = "";
       if (endDate === null && !logging) {
         new_item = "[logging] | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
         this.logmodel.splice(0, 0, [new_item]);
         this.startTimer(entries.length - 1, startDate);
       } else {
-        new_item =
-          this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+        new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
         this.logmodel.splice(0, 0, [new_item]);
         this.updatetotals();
       }
     } else {
-      entries.splice(index, 0, { start: startDate, end: endDate, project: theproject, ID: ID, billed: billed });
+      entries.splice(index, 0, { start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
 
       let new_item = "";
       if (endDate === null && !logging) {
         new_item = "[logging] | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
         this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
         this.startTimer(entries.length - 1, startDate);
       } else {
-        new_item =
-          this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+        new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
+        if (meta) {
+          new_item += "\n" + meta;
+        }
         this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
         this.updatetotals();
       }
@@ -1363,7 +1412,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     } else {
       const selection = this._projectlist.get_selected();
       const selectionText = projects[selection];
-      this.addentry_user(selectionText, currentDate);
+      let meta = null;
+      if (this._metaentry.get_text()) {
+        meta = this._metaentry.get_text();
+      }
+      this.addentry_user(selectionText, meta, currentDate);
     }
   }
 
@@ -1803,6 +1856,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             let end = entries[index].end;
             let theproject = entries[index].project;
             let billed = entries[index].billed;
+            let meta = entries[index].meta;
             if (newproject) {
               theproject = newproject;
             }
@@ -1822,7 +1876,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
             console.log("Will change entry " + index + " to " +
               start + " " + end + " " + theproject + " " + billed);
-            this.editentrybyIndex(index, theproject, start, end, billed);
+            this.editentrybyIndex(index, theproject, start, end, billed, meta);
           }
         }
       }
@@ -1837,6 +1891,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     let end = entries[index].end;
     let theproject = entries[index].project;
     let billed = entries[index].billed;
+    let meta = entries[index].meta;
     /*
     console.log("Filter start: " + startDate);
     console.log("Entry start: " + start);
@@ -1848,17 +1903,17 @@ export const TimeTrackerWindow = GObject.registerClass({
     if (startDate && start < startDate) {
       //console.log("Entry starts before filter. New start date: " + startDate);
       //console.log(entries[index]);
-      await this.editentrybyIndex(index, theproject, startDate, end, billed);
+      await this.editentrybyIndex(index, theproject, startDate, end, billed, meta);
       //console.log(entries[index]);
-      await this.addentry(theproject, start, new Date(startDate.getTime() - 1), billed, true, 0, index);
+      await this.addentry(theproject, meta, start, new Date(startDate.getTime() - 1), billed, true, 0, index);
       //console.log(entries[index]);
       index += 1;
       start = startDate;
     }
     if (endDate && (end > endDate || (!end && now > endDate))) {
       //console.log("Entry ends after filter");
-      await this.editentrybyIndex(index, theproject, start, endDate, billed);
-      await this.addentry(theproject, new Date(endDate.getTime() + 1), end, billed, true, 0, index + 1);
+      await this.editentrybyIndex(index, theproject, start, endDate, billed, meta);
+      await this.addentry(theproject, meta, new Date(endDate.getTime() + 1), end, billed, true, 0, index + 1);
     }
   }
 
@@ -2485,6 +2540,10 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (entry.end === null) {
               // Set the text of the item and add it to the new items for the visible log
               new_item = "[???????] | Project: " + entry.project;
+              if (entry.meta) {
+                new_item += "\n" + entry.meta;
+              }
+
               new_items.unshift(new_item);
 
               // Check if the start date of this still running entry is later than the current latest start date
@@ -2498,6 +2557,9 @@ export const TimeTrackerWindow = GObject.registerClass({
               // If the entry has an end date, go ahead and add it to the new_items
               new_item =
                 this.calcTimeDifference(entry.start, entry.end) + " | Project: " + entry.project;
+              if (entry.meta) {
+                new_item += "\n" + entry.meta;
+              }
               new_items.unshift(new_item);
             }
 
@@ -2534,7 +2596,12 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (latestStartIndex > -1) {
             this.startTimer(latestStartIndex, latestStartDate);
             // Set that entry as [logging]
-            this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
+            let new_item = "[logging] | Project: " + entries[latestStartIndex].project;
+
+            if (entries[latestStartIndex].meta) {
+              new_item += "\n" + entries[latestStartIndex].meta;
+            }
+            this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, [new_item]);
           }
         } else {
           // Add to the visible log contents
@@ -2595,8 +2662,8 @@ export const TimeTrackerWindow = GObject.registerClass({
             e2 = entries[spot].end.toString()
           }
 
-          // Check to see if the project, start date, or end date has been changed
-          if (entry.project != entries[spot].project || s1 != s2 || e1 != e2) {
+          // Check to see if the project, start date, etc. have been changed
+          if (entry.project != entries[spot].project || s1 != s2 || e1 != e2 || entry.billed != entries[spot].billed || entry.meta != entries[spot].meta) {
             // Note that there is a change, for a later operation
             change = true;
 
@@ -2605,7 +2672,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
               // If so, we will edit it
               console.log("Editing " + spot);
-              this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, false);
+              this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, entry.meta, false);
 
             } else {
 
@@ -2633,7 +2700,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             // This was an added entry. Add it
             change = true;
             console.log("Adding");
-            this.addentry(entry.project, entry.start, entry.end, entry.billed, false, entry.ID);
+            this.addentry(entry.project, entry.meta, entry.start, entry.end, entry.billed, false, entry.ID);
 
             // This code is identical to what's above
             if (addprojectsfromlog) {
@@ -2815,6 +2882,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       let endColumn = "";
       let idColumn = "";
       let billedColumn = "";
+      let metaColumn = "";
 
       for (let i = 0; i < columns.length; i++) {
         let column = columns[i];
@@ -2828,6 +2896,8 @@ export const TimeTrackerWindow = GObject.registerClass({
           idColumn = column;
         } else if (billedColumn == "" && /billed/i.test(column)) {
           billedColumn = column;
+        } else if (metaColumn == "" && /description/i.test(column)) {
+          metaColumn = column;
         } else if (!/duration/i.test(column)) {
           // If this is not a duration column, make sure it's in the extra columns list
           const foundItem = sync_extracolumns.indexOf(column);
@@ -2865,6 +2935,13 @@ export const TimeTrackerWindow = GObject.registerClass({
         try {
           if (entry[billedColumn] == "true") {
             billed = true;
+          }
+        } catch (_) {}
+
+        let meta = null;
+        try {
+          if (entry[metaColumn] != "") {
+            meta = entry[metaColumn];
           }
         } catch (_) {}
 
@@ -2919,6 +2996,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           project: projvalue,
           ID: ID,
           billed: billed,
+          meta: meta,
         };
         // Add unreadable columns
         if (sync_extracolumns.length > 0) {
@@ -3002,6 +3080,9 @@ export const TimeTrackerWindow = GObject.registerClass({
     // "backup_2024-01-23-145243523.csv"
     console.log("Log has been found again!");
     sync_templog = false;
+    if (this.filenotfounddialog) {
+      this.filenotfounddialog.close();
+    }
 
     let today = new Date();
     let todaysname = "backup_" + today.getFullYear() +
@@ -3023,23 +3104,23 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async filenotfounddialog(thepath, text = "", filehasbeenopened = false) {
-    const dialog = new Adw.AlertDialog({
+    this.filenotfounddialog = new Adw.AlertDialog({
       heading: "Can't Find Log File",
       close_response: "cancel",
     });
 
-    dialog.body = "Time Tracker couldn't find the previously-used log " +
+    this.filenotfounddialog.body = "Time Tracker couldn't find the previously-used log " +
       "file: " + thepath + ". Maybe it is on a currently inaccessible drive. " +
       "Should time tracker log time in a temporary file and merge the " +
       "changes with your chosen file when it is back online?";
 
 
-    dialog.add_response("option1", "Use Temporary File");
-    dialog.add_response("option2", "Use a New or Different File");
-    dialog.add_response("cancel", "Close App");
-    dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
+    this.filenotfounddialog.add_response("option1", "Use Temporary File");
+    this.filenotfounddialog.add_response("option2", "Use a New or Different File");
+    this.filenotfounddialog.add_response("cancel", "Close App");
+    this.filenotfounddialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
 
-    dialog.connect("response", async (_, response_id) => {
+    this.filenotfounddialog.connect("response", async (_, response_id) => {
       if (response_id === "cancel") {
         this.close();
       } else if (response_id === "option2") {
@@ -3047,9 +3128,22 @@ export const TimeTrackerWindow = GObject.registerClass({
       } else {
         this.settempfile(text, filehasbeenopened);
       }
+      clearInterval(this.filecheck);
     });
 
-    dialog.present(this);
+    this.filenotfounddialog.present(this);
+    this.filecheck = setInterval(() => {
+      const file = Gio.File.new_for_path(logpath);
+      // If the file exists
+      const fileexists = file.query_exists(null);
+      if (fileexists) {
+        clearInterval(this.filecheck);
+        sync_templog = false;
+        this.filenotfounddialog.unparent();
+        this.filenotfounddialog.run_dispose();
+        this.setsynctimer();
+      }
+    }, 1000);
   }
 
   // Create temporary file or find existing one, record path in sync_templogpath
@@ -3231,95 +3325,99 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async preferencesdialog() {
-    const dialog = new Adw.AlertDialog({
-      heading: "Preferences",
-      close_response: "cancel",
-    });
-    dialog.add_response("cancel", "Done");
+    try {
+      const dialog = new Adw.AlertDialog({
+        heading: "Preferences",
+        close_response: "cancel",
+      });
+      dialog.add_response("cancel", "Done");
 
-    const box = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
+      const box = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
 
-    const label = new Gtk.Label({
-      label: "What day should be the first day\nof the week in reports?",
-    });
-    box.append(label);
+      const label = new Gtk.Label({
+        label: "What day should be the first day\nof the week in reports?",
+      });
+      box.append(label);
 
-    const weeklist = new Gtk.DropDown({
-      enable_search: true,
-      margin_bottom: 16,
-    });
-    box.append(weeklist);
+      const weeklist = new Gtk.DropDown({
+        enable_search: true,
+        margin_bottom: 16,
+      });
+      box.append(weeklist);
 
-    // Set the weeklist contents
-    weeklist.expression = weekexpression;
-    weeklist.model = weekmodel;
-    weeklist.set_selected(firstdayofweek);
-    weeklist.connect("notify::selected-item", () => {
-      firstdayofweek = weeklist.get_selected();
-      this._settings.set_int("firstdayofweek", firstdayofweek);
-      this.updatetotals();
-    });
+      // Set the weeklist contents
+      weeklist.expression = weekexpression;
+      weeklist.model = weekmodel;
+      weeklist.set_selected(firstdayofweek);
+      weeklist.connect("notify::selected-item", () => {
+        firstdayofweek = weeklist.get_selected();
+        this._settings.set_int("firstdayofweek", firstdayofweek);
+        this.updatetotals();
+      });
 
-    const group1 = new Adw.PreferencesGroup({
-      margin_bottom: 16,
-    });
-    group1.set_title("Import Projects from Log");
-    group1.set_description("When opening a new log file, add its project names to the list of available projects.");
-    const project_switch = new Adw.SwitchRow();
-    group1.add(project_switch);
-    box.append(group1);
-    project_switch.set_active(addprojectsfromlog);
-    project_switch.connect("notify::active", () => {
-      addprojectsfromlog = project_switch.get_active();
-      this._settings.set_boolean("addprojectsfromlog", addprojectsfromlog);
-    });
+      const group1 = new Adw.PreferencesGroup({
+        margin_bottom: 16,
+      });
+      group1.set_title("Import Projects from Log");
+      group1.set_description("When opening a new log file, add its project names to the list of available projects.");
+      const project_switch = new Adw.SwitchRow();
+      group1.add(project_switch);
+      box.append(group1);
+      project_switch.set_active(addprojectsfromlog);
+      project_switch.connect("notify::active", () => {
+        addprojectsfromlog = project_switch.get_active();
+        this._settings.set_boolean("addprojectsfromlog", addprojectsfromlog);
+      });
 
-    const group2 = new Adw.PreferencesGroup({
-      margin_bottom: 16,
-    });
-    group2.set_title("12-Hour Format");
-    group2.set_description("Should Time Tracker use 12-hour time format (AM/PM), instead of 24-hour time format?");
-    const time_switch = new Adw.SwitchRow();
-    group2.add(time_switch);
-    box.append(group2);
-    time_switch.set_active(ampmformat);
-    time_switch.connect("notify::active", () => {
-      ampmformat = time_switch.get_active();
-      this._settings.set_boolean("ampmformat", ampmformat);
-    });
+      const group2 = new Adw.PreferencesGroup({
+        margin_bottom: 16,
+      });
+      group2.set_title("12-Hour Format");
+      group2.set_description("Should Time Tracker use 12-hour time format (AM/PM), instead of 24-hour time format?");
+      const time_switch = new Adw.SwitchRow();
+      group2.add(time_switch);
+      box.append(group2);
+      time_switch.set_active(ampmformat);
+      time_switch.connect("notify::active", () => {
+        ampmformat = time_switch.get_active();
+        this._settings.set_boolean("ampmformat", ampmformat);
+      });
 
-    const group3 = new Adw.PreferencesGroup({
-      margin_bottom: 16,
-    });
-    group3.set_title("Use Temporary Logs");
-    group3.set_description("Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?");
-    const temp_switch = new Adw.SwitchRow();
-    group3.add(temp_switch);
-    box.append(group3);
-    temp_switch.set_active(sync_autotemplog);
-    temp_switch.connect("notify::active", () => {
-      sync_autotemplog = temp_switch.get_active();
-      this._settings.set_boolean("autotemplog", sync_autotemplog);
-    });
+      const group3 = new Adw.PreferencesGroup({
+        margin_bottom: 16,
+      });
+      group3.set_title("Use Temporary Logs");
+      group3.set_description("Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?");
+      const temp_switch = new Adw.SwitchRow();
+      group3.add(temp_switch);
+      box.append(group3);
+      temp_switch.set_active(sync_autotemplog);
+      temp_switch.connect("notify::active", () => {
+        sync_autotemplog = temp_switch.get_active();
+        this._settings.set_boolean("autotemplog", sync_autotemplog);
+      });
 
-    let loglabel = new Gtk.Label({
-      label: "Set Time Tracker to store logs in the app's\nsystem folder, instead of in a user-specified file?",
-    });
+      let loglabel = new Gtk.Label({
+        label: "Set Time Tracker to store logs in the app's\nsystem folder, instead of in a user-specified file?",
+      });
 
-    const sysbutton = new Gtk.Button();
-    sysbutton.label = "Store Logs in App's System Folder";
-    sysbutton.connect("clicked", () => {
-      this.usesystemfolder();
-      this.savedialog();
-      loglabel.label = "Now storing logs in app's system folder.";
-    });
-    box.append(loglabel);
-    box.append(sysbutton);
+      const sysbutton = new Gtk.Button();
+      sysbutton.label = "Store Logs in App's System Folder";
+      sysbutton.connect("clicked", () => {
+        this.usesystemfolder();
+        this.savedialog();
+        loglabel.label = "Now storing logs in app's system folder.";
+      });
+      box.append(loglabel);
+      box.append(sysbutton);
 
-    dialog.set_extra_child(box);
-    dialog.present(this);
+      dialog.set_extra_child(box);
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
   }
 });
