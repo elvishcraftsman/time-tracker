@@ -9,10 +9,18 @@ import { TimeTrackerWindow } from './window.js';
 pkg.initGettext();
 pkg.initFormat();
 
+
 export const TimeTrackerApplication = GObject.registerClass(
     class TimeTrackerApplication extends Adw.Application {
         constructor() {
             super({application_id: 'com.lynnmichaelmartin.TimeTracker', flags: Gio.ApplicationFlags.DEFAULT_FLAGS});
+
+            this.set_accels_for_action('win.open', [ '<Ctrl>o' ]);
+            this.set_accels_for_action('win.new', [ '<Ctrl>n' ]);
+            this.set_accels_for_action('win.import', [ '<Ctrl>m' ]);
+            this.set_accels_for_action('win.undo', [ '<Ctrl>z' ]);
+            this.set_accels_for_action('win.redo', [ '<Ctrl>y' ]);
+            this.set_accels_for_action('win.start', [ '<Ctrl>space' ]);
 
             const quit_action = new Gio.SimpleAction({name: 'quit'});
                 quit_action.connect('activate', action => {
@@ -28,7 +36,7 @@ export const TimeTrackerApplication = GObject.registerClass(
                     application_name: 'time-tracker',
                     application_icon: 'com.lynnmichaelmartin.TimeTracker',
                     developer_name: 'Lynn Martin',
-                    version: '1.1.7',
+                    version: '1.1.8',
                     developers: [
                         'Lynn Martin'
                     ],

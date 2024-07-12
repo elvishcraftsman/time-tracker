@@ -152,7 +152,9 @@ export const TimeTrackerWindow = GObject.registerClass({
   InternalChildren: ['status', 'startbutton', 'projectlist',
   'list_box_editable', 'add', 'report1', 'report2', 'report3', 'toast_overlay',
   'customreport', 'reportstart', 'reportend', 'reportproject', 'reportbilled',
-  'reportgroup', 'reporttag', 'reportclient', 'metaentry'],
+  'reportgroup', 'reporttag', 'reportclient', 'metaentry',
+  'next_button', 'nav_pageone', 'nav_pagetwo', 'nav_pagethree',
+  'nav_pagefour', 'nav_view', 'next_button', 'previous_button', 'nav_title'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -182,6 +184,29 @@ export const TimeTrackerWindow = GObject.registerClass({
     } catch (_) {
       this.setprojects();
     }
+
+    // Navigation view
+    this._next_button.connect("clicked", () => {
+      switch (this._nav_view.visible_page) {
+        case this._nav_pageone:
+          this._nav_view.push(this._nav_pagetwo);
+          break;
+        case this._nav_pagetwo:
+          this._nav_view.push(this._nav_pagethree);
+          break;
+        case this._nav_pagethree:
+          this._nav_view.push(this._nav_pagefour);
+          break;
+      }
+    });
+    this._previous_button.connect("clicked", () => {
+      this._nav_view.pop();
+    });
+    this._nav_view.connect("notify::visible-page", () => {
+      this._previous_button.sensitive = this._nav_view.visible_page !== this._nav_pageone;
+      this._next_button.sensitive = this._nav_view.visible_page !== this._nav_pagefour;
+      this._nav_title.label = this._nav_view.visible_page.title;
+    });
 
     // Connecting the start/stop button with the proper function
     const startstopAction = new Gio.SimpleAction({name: 'start'});
@@ -228,9 +253,18 @@ export const TimeTrackerWindow = GObject.registerClass({
       // When the selected project changes, change the project in the currently running entry, if any
       if (!nochange && selection && logging) {
         const value = selection.value;
-        this.editrunningentrybyIndex(value);
+        this.editrunningentrybyIndex(value, entries[this.currentTimer()].meta);
       }
+    });
 
+    this._metaentry.connect("changed", () => {
+      if (!nochange && logging) {
+        if (this._metaentry.get_text() != "") {
+          this.editrunningentrybyIndex(entries[this.currentTimer()].project, this._metaentry.get_text());
+        } else {
+          this.editrunningentrybyIndex(entries[this.currentTimer()].project, null);
+        }
+      }
     });
 
     // Defining the model for the log
@@ -968,14 +1002,14 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Update the project of the currently running entry
-  async editrunningentrybyIndex(theproject) {
+  async editrunningentrybyIndex(theproject, meta) {
     let current = this.currentTimer();
     if (current) {
       //Is this code needed? {{{
       if (theproject == "") {
         theproject = entries[current].project;
       }
-      this.editentry_user(current, theproject, entries[current].start, null, entries[current].billed, entries[current].meta);
+      this.editentry_user(current, theproject, entries[current].start, null, entries[current].billed, meta);
     }
   }
 
@@ -1024,7 +1058,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       box.append(projectlist2);
 
       const metaentry2 = new Gtk.Entry({
-        placeholder_text: "Description #tags",
+        placeholder_text: "Description  #tag  @client",
       });
       if (meta) {
         metaentry2.set_text(meta);
@@ -1130,6 +1164,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               theproject = value;
               nochange = true;
               this._projectlist.set_selected(projectlist2.get_selected());
+              this._metaentry.set_text(metaentry2.get_text());
               nochange = false;
             }
             if (metaentry2.get_text() != "") {
@@ -1169,7 +1204,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async editprojectdialog() {
     const dialog = new Adw.AlertDialog({
       heading: "Edit Projects",
-      body: "Separate projects with line breaks.",
+      body: "Separate projects with line breaks. You can include #tags and @clients.",
       close_response: "cancel",
     });
 
@@ -1464,6 +1499,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     try {
       this._projectlist.set_selected(0); // Reset project to (no project)
+      this._metaentry.set_text("");
     } catch (error) {
       console.log(error);
     }
@@ -1613,9 +1649,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       this._report3.append(this._reportsbox3);
 
 
-      this.displayfilter(this._reportsbox1, null, false, 1, todayStart, todayEnd);
-      this.displayfilter(this._reportsbox2, null, false, 1, thisWeekStart, todayEnd);
-      this.displayfilter(this._reportsbox3, null, false, 1, lastWeekStart, lastWeekEnd);
+      this.displayfilter(this._reportsbox1, "Today", false, 1, todayStart, todayEnd);
+      this.displayfilter(this._reportsbox2, "This Week", false, 1, thisWeekStart, todayEnd);
+      this.displayfilter(this._reportsbox3, "Last Week", false, 1, lastWeekStart, lastWeekEnd);
 
       this.displaycustomfilter();
     } catch (e) {
@@ -1721,6 +1757,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         output.desc = new Gtk.Label({
           label: description,
           wrap: true,
+          margin_top: 12,
+          margin_bottom: 12,
         });
       }
 
@@ -2838,8 +2876,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
         // Find out what project the current entry has, and set projectlist to match
-        if (this.currentTimer()) {
-          this.setproject(entries[this.currentTimer()].project);
+        if (this.currentTimer() != null) {
+          this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
         }
       } catch (e) {
         console.log(e);
@@ -2850,15 +2888,20 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  // Set the selected project. This could potentially be used some other places
-  async setproject(theproject) {
+  // Set the selected project without making a change. This could potentially be used some other places
+  async setprojectandmeta(theproject, meta) {
     if (theproject != "(no project)") {
       let projectindex = projects.indexOf(theproject);
+      nochange = true;
       if (projectindex !== -1) {
-        nochange = true;
         this._projectlist.set_selected(projectindex);
-        nochange = false;
       }
+      if (meta) {
+        this._metaentry.set_text(meta);
+      } else {
+        this._metaentry.set_text("");
+      }
+      nochange = false;
     }
   }
 
