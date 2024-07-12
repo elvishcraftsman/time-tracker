@@ -15,12 +15,16 @@
 	</description>
   <screenshots>
     <screenshot type="default">
-      <caption>Tracking time by project</caption>
+      <caption>Tracking time by project and description</caption>
       <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/data/screenshots/main-tracking.png</image>
     </screenshot>
     <screenshot>
-      <caption>Viewing how much time was spent per project</caption>
+      <caption>Viewing preset reports</caption>
       <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/data/screenshots/reporting.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Creating a custom report</caption>
+      <image>https://raw.githubusercontent.com/elvishcraftsman/time-tracker/main/data/screenshots/reporting-custom.png</image>
     </screenshot>
   </screenshots>
   <branding>

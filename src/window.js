@@ -458,6 +458,10 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
             // Set that item as .undone = true
             sync_changes[i].undone = true;
+
+            if (logging) {
+              this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
+            }
             break;
           }
         }
@@ -488,6 +492,9 @@ export const TimeTrackerWindow = GObject.registerClass({
             // Set that item as .undone = false
             sync_changes[j].undone = false;
 
+            if (logging) {
+              this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
+            }
             break;
           }
         }
