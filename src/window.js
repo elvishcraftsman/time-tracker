@@ -52,6 +52,8 @@ let customstart = null;
 let customend = null;
 let customproject = null;
 let custombilled = null;
+let customtag = null;
+let customclient = null;
 let customgroup = 0;
 let sync_operation = 0; // Is a current operation trying to sync?
 let sync_changes = []; // Changes to be synced
@@ -148,9 +150,9 @@ export const TimeTrackerWindow = GObject.registerClass({
   GTypeName: 'TimeTrackerWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
   InternalChildren: ['status', 'startbutton', 'projectlist',
-  'list_box_editable', 'add', 'search_entry', 'reports', 'toast_overlay',
+  'list_box_editable', 'add', 'report1', 'report2', 'report3', 'toast_overlay',
   'customreport', 'reportstart', 'reportend', 'reportproject', 'reportbilled',
-  'reportgroup', 'metaentry'],
+  'reportgroup', 'reporttag', 'reportclient', 'metaentry'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -235,6 +237,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     this.logmodel = new Gtk.StringList();
 
     // Defining the searching and filtering model
+    // {{{ some of this code can be removed
     const search_expression = Gtk.PropertyExpression.new(
       Gtk.StringObject,
       null,
@@ -251,6 +254,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       incremental: true,
     });
     this._list_box_editable.bind_model(filter_model, this.createItemForFilterModel);
+
 
     // Connecting the add entry button with the proper function
     this._add.connect("clicked", () => {
@@ -321,10 +325,29 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
     });
 
-    // Connecting the search entry with searching the log
+    /* Connecting the search entry with searching the log
     this._search_entry.connect("search-changed", () => {
       const searchText = this._search_entry.get_text();
       filter.search = searchText;
+    });
+    */
+
+    this._reporttag.connect("changed", () => {
+      if (this._reporttag.get_text() != "") {
+        customtag = this._reporttag.get_text();
+      } else {
+        customtag = null;
+      }
+      this.displaycustomfilter();
+    });
+
+    this._reportclient.connect("changed", () => {
+      if (this._reportclient.get_text() != "") {
+        customclient = this._reportclient.get_text();
+      } else {
+        customclient = null;
+      }
+      this.displaycustomfilter();
     });
 
     // Opening edit/delete dialog when a log row is selected
@@ -484,6 +507,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // If there are any changes to write out, write them out
     if (changestobemade) {
+      console.log("Sync has detected changes to be made: " + changestobemade);
       changestobemade = false;
       await this.writelog();
     } else {
@@ -805,7 +829,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       for (let i = 0; i < sync_extraentries.length; i++) {
         let ID = sync_extraentries[i].ID;
         let deletedate = sync_extraentries[i].end;
-        entriesString += '\n,deleted,' + deletedate.toString() +',' + ID.toString() + ",,,";
+        entriesString += '\n,deleted,' + deletedate.toString() +',,' + ID.toString() + ",,,";
       }
     }
 
@@ -836,7 +860,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Write the given text to the log file
   async writetofile(filepath, text, notify = true) {
     const file = Gio.File.new_for_path(filepath);
-    console.log("Attempting to write to " + filepath);
+    console.log("Writing to " + filepath);
     //console.log("\"" + text + "\"");
 
     try {
@@ -915,6 +939,8 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     this.logmodel.remove(entries.length - 1 - number);
     entries.splice(number, 1);
+
+    console.log("removeentrybyIndex() is queuing a change to write out: " + writeout);
     changestobemade = writeout;
     this.updatetotals();
   }
@@ -933,6 +959,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           entries[current].billed,
           entries[current].meta,
         );
+        console.log("stoprunningentry() is queuing a change to write out.");
         changestobemade = true;
       }
     } catch (e) {
@@ -1221,7 +1248,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async editentry_user(number, theproject, startDate, endDate, billed, meta, writeout = true) {
-    console.log("Preparing to edit " + number);
+    console.log("Noting edit of " + number + " in undo/redo array");
 
     // Note the change in the sync_change array
     sync_changes.push({
@@ -1244,7 +1271,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Edit the given entry in the entries array and the log control
   async editentrybyIndex(number, theproject, startDate, endDate, billed, meta, writeout = true) {
-    console.log("Again, preparing to edit " + number);
+    console.log("Preparing to edit " + number);
     // Stop the timer if the entry didn't have an end date, but does now
     if (entries[number].end == null && endDate != null) {
       this.stopTimer();
@@ -1281,6 +1308,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.updatetotals();
     }
     this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
+    console.log("editentrybyIndex() is queuing a change to write out: " + writeout);
     changestobemade = writeout;
   }
 
@@ -1351,6 +1379,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     }
 
+    console.log("addentry() is queuing a change to write out: " + writeout);
     changestobemade = writeout;
   }
 
@@ -1546,21 +1575,47 @@ export const TimeTrackerWindow = GObject.registerClass({
       */
 
       // Empty filters[]
-      if (this._reportsbox || this._customreportsbox) {
-        this._reportsbox?.unparent();
-        this._reportsbox?.run_dispose();
+      if (this._reportsbox1) {
+        this._reportsbox1?.unparent();
+        this._reportsbox1?.run_dispose();
         filters = [];
       }
-      this._reportsbox = new Gtk.Box({
+      this._reportsbox1 = new Gtk.Box({
         orientation: 1,
         spacing: 12,
       });
-      this._reports.append(this._reportsbox);
+      this._report1.append(this._reportsbox1);
 
-      this.displayfilter(this._reportsbox, "Today", false, 1, todayStart, todayEnd);
-      this.displayfilter(this._reportsbox, "This Week", false, 1, thisWeekStart, todayEnd);
-      this.displayfilter(this._reportsbox, "Last Week", false, 1, lastWeekStart, lastWeekEnd);
-      this.displayfilter(this._reportsbox, "All Time", false, 1);
+
+      // Empty filters[]
+      if (this._reportsbox2) {
+        this._reportsbox2?.unparent();
+        this._reportsbox2?.run_dispose();
+        filters = [];
+      }
+      this._reportsbox2 = new Gtk.Box({
+        orientation: 1,
+        spacing: 12,
+      });
+      this._report2.append(this._reportsbox2);
+
+
+      // Empty filters[]
+      if (this._reportsbox3) {
+        this._reportsbox3?.unparent();
+        this._reportsbox3?.run_dispose();
+        filters = [];
+      }
+      this._reportsbox3 = new Gtk.Box({
+        orientation: 1,
+        spacing: 12,
+      });
+      this._report3.append(this._reportsbox3);
+
+
+      this.displayfilter(this._reportsbox1, null, false, 1, todayStart, todayEnd);
+      this.displayfilter(this._reportsbox2, null, false, 1, thisWeekStart, todayEnd);
+      this.displayfilter(this._reportsbox3, null, false, 1, lastWeekStart, lastWeekEnd);
 
       this.displaycustomfilter();
     } catch (e) {
@@ -1582,7 +1637,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         orientation: 1,
       });
       this._customreport.append(this._customreportsbox);
-      customfilter = this.displayfilter(this._customreportsbox, null, true, customgroup, customstart, customend, customproject, custombilled);
+      customfilter = this.displayfilter(this._customreportsbox, null, true, customgroup, customstart, customend, customproject, custombilled, customtag, customclient);
     } catch (e) {
       console.log(e);
     }
@@ -1592,9 +1647,9 @@ export const TimeTrackerWindow = GObject.registerClass({
   // groupby = 0 : no grouping
   // groupby = 1 : project
   // groupby = 2 : billed
-  async displayfilter(widget, title = null, usedescription = false, groupby = 0, startDate = null, endDate = null, theproject = null, billed = null) {
+  async displayfilter(widget, title = null, usedescription = false, groupby = 0, startDate = null, endDate = null, theproject = null, billed = null, tag = null, client = null) {
     try {
-      let outputentries = this.filterentries(startDate, endDate, theproject, billed);
+      let outputentries = this.filterentries(startDate, endDate, theproject, billed, tag, client);
       let duration = this.secondstoOutput(outputentries[0].duration);
       let description = "";
       if (startDate && endDate) {
@@ -1606,18 +1661,37 @@ export const TimeTrackerWindow = GObject.registerClass({
       } else {
         description = "All entries";
       }
-      if (billed) {
-        description = "(Billed): " + description;
-      } else if (billed == false) {
-        description = "(Unbilled): " + description;
-      }
+      let fronttext = "";
       if (theproject) {
-        if (billed == null) {
-          description = theproject + ": " + description;
-        } else {
-          description = theproject + " " + description;
-        }
+        fronttext += theproject;
       }
+      if (tag) {
+        if (fronttext != "") {
+          fronttext += " ";
+        }
+        fronttext += "#" + tag;
+      }
+      if (client) {
+        if (fronttext != "") {
+          fronttext += " ";
+        }
+        fronttext += "@" + client;
+      }
+      if (billed) {
+        if (fronttext != "") {
+          fronttext += " ";
+        }
+        fronttext += "(Billed)";
+      } else if (billed == false) {
+        if (fronttext != "") {
+          fronttext += " ";
+        }
+        fronttext += "(Unbilled)";
+      }
+      if (fronttext != "") {
+        fronttext += ": ";
+      }
+      description = fronttext + description;
 
       // Create a new object
       const output = {
@@ -1627,6 +1701,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         end: endDate,
         project: theproject,
         billed: billed,
+        tag: tag,
+        client: client,
         entrygroups: [outputentries],
         duration: duration,
         buttons: [],
@@ -1661,7 +1737,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (groupby == 1) {
         // Go through each project
         for (let i = 0; i < projects.length; i++) {
-          let entrygroup = this.filterentries(startDate, endDate, projects[i], billed);
+          let entrygroup = this.filterentries(startDate, endDate, projects[i], billed, tag, client);
           if (entrygroup[0].duration > 0) {
             output.entrygroups.push(entrygroup);
             output.buttons.push(new Gtk.Button({
@@ -1717,7 +1793,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // If you don't want to use a certain filter, set the property to null
-  filterentries(startDate = null, endDate = null, theproject = null, billed = null) {
+  filterentries(startDate = null, endDate = null, theproject = null, billed = null, tag = null, client = null) {
     try {
       let outputentries = [];
       let total = 0;
@@ -1751,6 +1827,26 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (billed != null) {
           // pass an entry with the same billed value
           if (entry.billed != billed) {
+            continue;
+          }
+        }
+        let tagsearch = " " + entry.project.replace(/[\r\n]+/g, ' ') + " ";
+        if (entry.meta) {
+          tagsearch += entry.meta.replace(/[\r\n]+/g, ' ') + " ";
+        }
+        if (tag) {
+          tag = tag.split(" ")[0];
+          // Find #tag in project and meta
+          const tagexp = ` #${tag} `;
+          if (!tagsearch.toLowerCase().includes(tagexp.toLowerCase())) {
+            continue;
+          }
+        }
+        if (client) {
+          client = client.split(" ")[0];
+          // Find @client in project and meta
+          const clientexp = ` @${client} `;
+          if (!tagsearch.toLowerCase().includes(clientexp.toLowerCase())) {
             continue;
           }
         }
@@ -2671,13 +2767,13 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (!isNaN(entry.start)) {
 
               // If so, we will edit it
-              console.log("Editing " + spot);
+              console.log("Sync is requesting to edit " + spot);
               this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, entry.meta, false);
 
             } else {
 
               // If not, we will delete it
-              console.log("Removing " + spot);
+              console.log("Sync is requesting to remove " + spot);
               this.removeentrybyIndex(spot, false);
             }
 
@@ -2699,7 +2795,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (!isNaN(entry.start)) {
             // This was an added entry. Add it
             change = true;
-            console.log("Adding");
+            console.log("Sync is requesting to add entry");
             this.addentry(entry.project, entry.meta, entry.start, entry.end, entry.billed, false, entry.ID);
 
             // This code is identical to what's above
@@ -2951,6 +3047,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           let now = new Date(); // In case a new ID needs to be made
           if (isNaN(ID)) {
             if (isNaN(entry[startColumn])) {
+              console.log("No start date or ID in line " + i + ": removing.");
               changestobemade = true; // Set the app to write the changes that it made
               // Just delete it
               continue;
@@ -2961,6 +3058,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
           } else if (readentries.find(item => item.ID === ID) || (merge && sync_firsttime && entries.find(item => item.ID === ID))) {
             if (isNaN(entry[startColumn])) {
+              console.log("No start date and duplicate ID in line " + i + ": removing.");
               changestobemade = true; // Set the app to write the changes that it made
               // Just delete it
               continue;

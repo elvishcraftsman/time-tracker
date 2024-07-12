@@ -66,7 +66,9 @@
                             <property name="halign">3</property>
                             <property name="margin-top">24</property>
                             <property name="margin-bottom">12</property>
-                            <property name="spacing">20</property>
+                            <style>
+                              <class name="linked"/>
+                            </style>
                             <child>
                               <object class="GtkDropDown" id="projectlist">
                                 <property name="width-request">140</property>
@@ -77,35 +79,21 @@
                               </object>
                             </child>
                             <child>
-                              <object class="GtkButton" id="startbutton">
-                                <property name="width-request">140</property>
-                                <property name="label" translatable="true">Start</property>
-                                <property name="action-name">win.start</property>
-                                <style>
-                                  <class name="suggested-action"/>
-                                </style>
+                              <object class="GtkEntry" id="metaentry">
+                                <property name="placeholder-text">Task  #tag  @client</property>
                               </object>
                             </child>
                           </object>
                         </child>
                         <child>
-                          <object class="GtkEntry" id="metaentry">
-                            <property name="placeholder-text">Description #tags</property>
+                          <object class="GtkButton" id="startbutton">
+                            <property name="width-request">140</property>
+                            <property name="label" translatable="true">Start</property>
+                            <property name="action-name">win.start</property>
                             <property name="margin-bottom">24</property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkBox">
-                            <property name="halign">3</property>
-                            <property name="margin-bottom">12</property>
                             <style>
-                              <class name="linked"/>
+                              <class name="suggested-action"/>
                             </style>
-                            <child>
-                              <object class="GtkSearchEntry" id="search_entry">
-                                <property name="placeholder-text" translatable="true">Search items</property>
-                              </object>
-                            </child>
                           </object>
                         </child>
                         <child>
@@ -158,12 +146,12 @@
                           <child>
                             <object class="GtkStack" id="stack2">
                               <child>
-                                <object class="GtkStackPage" id="presetpage">
-                                  <property name="title" translatable="true">Preset</property>
+                                <object class="GtkStackPage" id="reportpage1">
+                                  <property name="title" translatable="true">Today</property>
                                   <property name="child">
                                     <object class="AdwStatusPage">
                                       <child>
-                                        <object class="GtkBox" id="reports">
+                                        <object class="GtkBox" id="report1">
                                           <property name="orientation">1</property>
                                           <property name="halign">3</property>
                                         </object>
@@ -173,57 +161,29 @@
                                 </object>
                               </child>
                               <child>
-                                <object class="GtkStackPage" id="custompage">
-                                  <property name="title" translatable="true">Custom</property>
+                                <object class="GtkStackPage" id="reportpage2">
+                                  <property name="title" translatable="true">This Week</property>
                                   <property name="child">
                                     <object class="AdwStatusPage">
                                       <child>
-                                        <object class="GtkBox" id="customreport">
+                                        <object class="GtkBox" id="report2">
                                           <property name="orientation">1</property>
                                           <property name="halign">3</property>
-                                          <child>
-                                            <object class="GtkBox">
-                                              <property name="orientation">0</property>
-                                              <property name="halign">3</property>
-                                              <property name="margin-top">6</property>
-                                              <property name="margin-bottom">6</property>
-                                              <style>
-                                                <class name="linked"/>
-                                              </style>
-                                              <child>
-                                                <object class="GtkButton" id="reportstart">
-                                                  <property name="label">Start Time</property>
-                                                </object>
-                                              </child>
-                                              <child>
-                                                <object class="GtkButton" id="reportend">
-                                                  <property name="label">End Time</property>
-                                                </object>
-                                              </child>
-                                            </object>
-                                          </child>
-                                          <child>
-                                            <object class="GtkBox">
-                                              <style>
-                                                <class name="linked"/>
-                                              </style>
-                                              <child>
-                                                <object class="GtkButton" id="reportproject">
-                                                  <property name="label">Project</property>
-                                                </object>
-                                              </child>
-                                              <child>
-                                                <object class="GtkButton" id="reportbilled">
-                                                  <property name="label">Billed Status</property>
-                                                </object>
-                                              </child>
-                                              <child>
-                                                <object class="GtkButton" id="reportgroup">
-                                                  <property name="label">Grouping</property>
-                                                </object>
-                                              </child>
-                                            </object>
-                                          </child>
+                                        </object>
+                                      </child>
+                                    </object>
+                                  </property>
+                                </object>
+                              </child>
+                              <child>
+                                <object class="GtkStackPage" id="reportpage3">
+                                  <property name="title" translatable="true">Last Week</property>
+                                  <property name="child">
+                                    <object class="AdwStatusPage">
+                                      <child>
+                                        <object class="GtkBox" id="report3">
+                                          <property name="orientation">1</property>
+                                          <property name="halign">3</property>
                                         </object>
                                       </child>
                                     </object>
@@ -232,6 +192,90 @@
                               </child>
                             </object>
                           </child>
+                          <child>
+                            <object class="GtkSeparator">
+
+                            </object>
+                          </child>
+                          <child>
+                            <object class="GtkScrolledWindow">
+                              <property name="hexpand">true</property>
+                              <property name="vexpand">true</property>
+                              <property name="margin-top">6</property>
+                              <property name="margin-bottom">6</property>
+                              <property name="margin-start">6</property>
+                              <property name="margin-end">6</property>
+                              <property name="height-request">200</property>
+                              <property name="child">
+<object class="GtkBox" id="customreport">
+                              <property name="orientation">1</property>
+                              <property name="halign">3</property>
+                              <child>
+                                <object class="GtkBox">
+                                  <property name="orientation">0</property>
+                                  <property name="halign">3</property>
+                                  <property name="margin-top">6</property>
+                                  <property name="margin-bottom">6</property>
+                                  <style>
+                                    <class name="linked"/>
+                                  </style>
+                                  <child>
+                                    <object class="GtkButton" id="reportstart">
+                                      <property name="label">Start Time</property>
+                                    </object>
+                                  </child>
+                                  <child>
+                                    <object class="GtkButton" id="reportend">
+                                      <property name="label">End Time</property>
+                                    </object>
+                                  </child>
+                                </object>
+                              </child>
+                              <child>
+                                <object class="GtkBox">
+                                  <style>
+                                    <class name="linked"/>
+                                  </style>
+                                  <child>
+                                    <object class="GtkButton" id="reportproject">
+                                      <property name="label">Project</property>
+                                    </object>
+                                  </child>
+                                  <child>
+                                    <object class="GtkButton" id="reportbilled">
+                                      <property name="label">Billed Status</property>
+                                    </object>
+                                  </child>
+                                  <child>
+                                    <object class="GtkButton" id="reportgroup">
+                                      <property name="label">Grouping</property>
+                                    </object>
+                                  </child>
+                                </object>
+                              </child>
+                              <child>
+                                <object class="GtkBox">
+                                  <style>
+                                    <class name="linked"/>
+                                  </style>
+                                  <child>
+                                    <object class="GtkEntry" id="reporttag">
+                                      <property name="placeholder-text">Tag</property>
+                                    </object>
+                                  </child>
+                                  <child>
+                                    <object class="GtkEntry" id="reportclient">
+                                      <property name="placeholder-text">Client</property>
+                                    </object>
+                                  </child>
+                                </object>
+                              </child>
+                            </object>
+
+                              </property>
+                            </object>
+                          </child>
+
                       </object>
                     </property>
                   </object>
