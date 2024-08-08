@@ -2,6 +2,14 @@
 <gresources>
   <gresource prefix="/com/lynnmichaelmartin/TimeTracker">
     <file preprocess="xml-stripblanks">window.ui</file>
+    <file preprocess="xml-stripblanks">preferences.ui</file>
     <file preprocess="xml-stripblanks">gtk/help-overlay.ui</file>
+  </gresource>
+  <gresource prefix="/com/lynnmichaelmartin/TimeTracker/icons/scalable/actions">
+    <file alias="timetracker-clock-symbolic.svg" preprocess="xml-stripblanks">../data/icons/hicolor/scalable/other/clock-alt-symbolic.svg</file>
+    <file alias="timetracker-reports-symbolic.svg" preprocess="xml-stripblanks">../data/icons/hicolor/scalable/other/profit-symbolic.svg</file>
+    <file alias="timetracker-edit-symbolic.svg" preprocess="xml-stripblanks">../data/icons/hicolor/scalable/other/edit-symbolic.svg</file>
+    <file alias="timetracker-up-symbolic.svg" preprocess="xml-stripblanks">../data/icons/hicolor/scalable/other/up-symbolic.svg</file>
+    <file alias="timetracker-down-symbolic.svg" preprocess="xml-stripblanks">../data/icons/hicolor/scalable/other/down-symbolic.svg</file>
   </gresource>
 </gresources>

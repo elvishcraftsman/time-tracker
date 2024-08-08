@@ -3,5 +3,6 @@
   <gresource prefix="/com/lynnmichaelmartin/TimeTracker/js">
     <file>main.js</file>
     <file>window.js</file>
+    <file>preferences.js</file>
   </gresource>
 </gresources>

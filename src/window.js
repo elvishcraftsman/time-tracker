@@ -8,6 +8,8 @@ import Gtk from 'gi://Gtk';
 import Gio from 'gi://Gio';
 import Adw from 'gi://Adw';
 import GLib from 'gi://GLib';
+import Gdk from "gi://Gdk";
+import { PreferencesWindow } from './preferences.js';
 
 // Make it possible to use async file loading and saving operations
 Gio._promisify(Gio.File.prototype,
@@ -37,7 +39,6 @@ let startedTime = new Date();
 let entries = [];
 let projects = [];
 let logpath = "";
-let firstdayofweek = 0;
 let addprojectsfromlog = true;
 let totalString = "";
 let currentTimer = null;
@@ -47,6 +48,7 @@ let nochange = false;
 let sync_interval = 1000;
 let tick = 0;
 let nexttick = 0;
+/*
 let customfilter = -1;
 let customstart = null;
 let customend = null;
@@ -55,6 +57,7 @@ let custombilled = null;
 let customtag = null;
 let customclient = null;
 let customgroup = 0;
+*/
 let sync_operation = 0; // Is a current operation trying to sync?
 let sync_changes = []; // Changes to be synced
 // type, project, start, stop, ID, oldproject, oldstart, oldstop, undone
@@ -65,7 +68,11 @@ let sync_autotemplog = false;
 let sync_fullstop = false;
 let sync_templog = false;
 let sync_extracolumns = [];
-let filters = [];
+let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
+// 'title=`Today`,start=day+0,end=day+0,filters=[project=,billed=,tag=,client=],groupby=["project"]'
+let nav_pages = [];
+let nav_current = 0;
+let version = "2.0.0";
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -150,11 +157,9 @@ export const TimeTrackerWindow = GObject.registerClass({
   GTypeName: 'TimeTrackerWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
   InternalChildren: ['status', 'startbutton', 'projectlist',
-  'list_box_editable', 'add', 'report1', 'report2', 'report3', 'toast_overlay',
-  'customreport', 'reportstart', 'reportend', 'reportproject', 'reportbilled',
-  'reportgroup', 'reporttag', 'reportclient', 'metaentry',
-  'next_button', 'nav_pageone', 'nav_pagetwo', 'nav_pagethree',
-  'nav_pagefour', 'nav_view', 'next_button', 'previous_button', 'nav_title'],
+  'list_box_editable', 'add', 'toast_overlay',
+  'customreport', 'reportcontrols', 'reportdata',
+  'metaentry', 'presetreports'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -171,8 +176,19 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._settings.bind(
         "window-maximized", this, "maximized", Gio.SettingsBindFlags.DEFAULT);
 
+    // Version
+    this.versioning(this._settings.get_string("version"));
+
+    // If we need to reset the filters gsetting to default
+    //this._settings.set_string("filters", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed');
+
+    let reportsetting = this._settings.get_string("reports");
+    if (reportsetting.indexOf("`") > -1) {
+      reports = reports.concat(this.settingstoreports(reportsetting));
+    }
+
     // Applying the custom settings
-    firstdayofweek = this._settings.get_int("firstdayofweek");
+    this.firstdayofweek = this._settings.get_int("firstdayofweek");
     sync_interval = this._settings.get_int("syncinterval") * 1000;
     addprojectsfromlog = this._settings.get_boolean("addprojectsfromlog");
     ampmformat = this._settings.get_boolean("ampmformat");
@@ -184,29 +200,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     } catch (_) {
       this.setprojects();
     }
-
-    // Navigation view
-    this._next_button.connect("clicked", () => {
-      switch (this._nav_view.visible_page) {
-        case this._nav_pageone:
-          this._nav_view.push(this._nav_pagetwo);
-          break;
-        case this._nav_pagetwo:
-          this._nav_view.push(this._nav_pagethree);
-          break;
-        case this._nav_pagethree:
-          this._nav_view.push(this._nav_pagefour);
-          break;
-      }
-    });
-    this._previous_button.connect("clicked", () => {
-      this._nav_view.pop();
-    });
-    this._nav_view.connect("notify::visible-page", () => {
-      this._previous_button.sensitive = this._nav_view.visible_page !== this._nav_pageone;
-      this._next_button.sensitive = this._nav_view.visible_page !== this._nav_pagefour;
-      this._nav_title.label = this._nav_view.visible_page.title;
-    });
 
     // Connecting the start/stop button with the proper function
     const startstopAction = new Gio.SimpleAction({name: 'start'});
@@ -233,6 +226,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     importAction.connect('activate', () => this.importlog());
     this.add_action(importAction);
 
+    const systemAction = new Gio.SimpleAction({name: 'system'});
+    systemAction.connect('activate', () => {
+      this.usesystemfolder();
+      this.savedialog();
+    });
+    this.add_action(systemAction);
+
     // Connecting the "Undo" button with the proper function
     const undoAction = new Gio.SimpleAction({name: 'undo'});
     undoAction.connect('activate', () => this.undo());
@@ -242,6 +242,10 @@ export const TimeTrackerWindow = GObject.registerClass({
     const redoAction = new Gio.SimpleAction({name: 'redo'});
     redoAction.connect('activate', () => this.redo());
     this.add_action(redoAction);
+
+    const reportsAction = new Gio.SimpleAction({name: 'reports'});
+    reportsAction.connect('activate', () => this.reportsdialog());
+    this.add_action(reportsAction);
 
     // Connecting the project model to projectlist
     this._projectlist.expression = listexpression;
@@ -253,6 +257,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       // When the selected project changes, change the project in the currently running entry, if any
       if (!nochange && selection && logging) {
         const value = selection.value;
+        //console.log(value, entries[this.currentTimer()].meta);
         this.editrunningentrybyIndex(value, entries[this.currentTimer()].meta);
       }
     });
@@ -295,94 +300,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.editentrydialog();
     });
 
-    this._reportstart.connect("clicked", () => {
-      this.datedialog(customstart, (date) => {
-        customstart = date;
-        if (date) {
-          this._reportstart.label = this.datetotext(date);
-        } else {
-          this._reportstart.label = "Start Time";
-        }
-        this.displaycustomfilter();
-      }, null, true);
-    });
-
-    this._reportend.connect("clicked", () => {
-      this.datedialog(customend, (date) => {
-        customend = date;
-        if (date) {
-          this._reportend.label = this.datetotext(date);
-        } else {
-          this._reportend.label = "End Time";
-        }
-        this.displaycustomfilter();
-      }, null, true);
-    });
-
-    this._reportproject.connect("clicked", () => {
-      this.projectdialog(customproject, (theproject) => {
-        customproject = theproject;
-        if (theproject) {
-          this._reportproject.label = theproject;
-        } else {
-          this._reportproject.label = "Project";
-        }
-        this.displaycustomfilter();
-      }, "<All Projects>");
-    });
-
-    this._reportbilled.connect("clicked", () => {
-      this.billeddialog(custombilled, (billed) => {
-        custombilled = billed;
-        if (billed) {
-          this._reportbilled.label = "Billed: Yes";
-        } else if (billed == false) {
-          this._reportbilled.label = "Billed: No";
-        } else {
-          this._reportbilled.label = "Billed Status";
-        }
-        this.displaycustomfilter();
-      }, "Both Billed and Not Billed");
-    });
-
-    this._reportgroup.connect("clicked", () => {
-      this.groupdialog(customgroup, (groupby) => {
-        customgroup = groupby;
-        if (groupby == 1) {
-          this._reportgroup.label = "Group by Project";
-        } else if (groupby == 2) {
-          this._reportgroup.label = "Group by Billed";
-        } else {
-          this._reportgroup.label = "Grouping";
-        }
-        this.displaycustomfilter();
-      });
-    });
-
-    /* Connecting the search entry with searching the log
-    this._search_entry.connect("search-changed", () => {
-      const searchText = this._search_entry.get_text();
-      filter.search = searchText;
-    });
-    */
-
-    this._reporttag.connect("changed", () => {
-      if (this._reporttag.get_text() != "") {
-        customtag = this._reporttag.get_text();
-      } else {
-        customtag = null;
-      }
-      this.displaycustomfilter();
-    });
-
-    this._reportclient.connect("changed", () => {
-      if (this._reportclient.get_text() != "") {
-        customclient = this._reportclient.get_text();
-      } else {
-        customclient = null;
-      }
-      this.displaycustomfilter();
-    });
+    const controls = this.reportcontrols(reports[0]);
+    this._reportcontrols.append(controls);
 
     // Opening edit/delete dialog when a log row is selected
     this._list_box_editable.connect("row-selected", () => {
@@ -397,7 +316,16 @@ export const TimeTrackerWindow = GObject.registerClass({
     // Connecting the preferences button with the proper function
     const prefsAction = new Gio.SimpleAction({name: 'preferences'});
     prefsAction.connect('activate', async () => {
-      this.preferencesdialog();
+      try {
+        //this.preferencesdialog();
+        const prefs = new PreferencesWindow;
+        prefs.connect("close-request", () => {
+          this.updatetotals();
+        });
+        prefs.present();
+      } catch (e) {
+        console.log(e);
+      }
     });
     this.add_action(prefsAction);
 
@@ -434,6 +362,108 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
 
     // All done constructing the window!
+  }
+
+  versioning (versions) {
+    try {
+      console.log("Welcome to Time Tracker " + version + ".");
+      console.log("Version history for this installation of Time Tracker: " + versions + ".");
+      let versionhistory = versions.split(">");
+      let lastversion = versionhistory[versionhistory.length - 1];
+      if (lastversion != version) {
+        this._settings.set_string("version", versions + ">" + version);
+        // This code executes
+      }
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  // These need to be duplicated in preferences.js or maybe in main.js
+  settingstoreports(setting) {
+    let outputArray = [];
+    let reportsArray = setting.split("`/~/`");
+    for (let i = 0; i < reportsArray.length; i++) {
+      try {
+        let input = reportsArray[i].split("`");
+        let output = {};
+        output.title = input[0];
+        output.start = new Date(input[1]);
+        if (isNaN(output.start)) {
+          output.start = input[1];
+        }
+        output.end = new Date(input[2]);
+        if (isNaN(output.end)) {
+          output.end = input[2];
+        }
+        if (input[3] != "") {
+          output.filters = {project: input[3]};
+        } else {
+          output.filters = {project: null};
+        }
+        if (input[4] == "true") {
+          output.filters.billed = true;
+        } else if (input[4] == "false") {
+          output.filters.billed = false;
+        } else {
+          output.filters.billed = null;
+        }
+        if (input[5] != "") {
+          output.filters.tag = input[5];
+        } else {
+          output.filters.tag = null;
+        }
+        if (input[6] != "") {
+          output.filters.client = input[6];
+        } else {
+          output.filters.client = null;
+        }
+        output.groupby = [];
+        for (let j = 7; j < input.length; j++) {
+          output.groupby.push(input[j]);
+        }
+
+        outputArray.push(output);
+      } catch (_) {}
+    }
+    return outputArray;
+  }
+
+  reportstosettings(reportsArray) {
+    let output = "";
+    for (let i = 0; i < reportsArray.length; i++) {
+      try {
+        let report = reportsArray[i];
+        output += report.title;
+        output += "`"
+        output += report.start.toString();
+        output += "`"
+        output += report.end.toString();
+        output += "`"
+        if (report.filters.project) {
+          output += report.filters.project;
+        }
+        output += "`"
+        if (report.filters.billed) {
+          output += report.filters.billed.toString();
+        }
+        output += "`"
+        if (report.filters.tag) {
+          output += report.filters.tag;
+        }
+        output += "`"
+        if (report.filters.client) {
+          output += report.filters.client;
+        }
+        for (let j = 0; j < report.groupby.length; j++) {
+          output+= "`" + report.groupby[j];
+        }
+        if (i < reportsArray.length - 1) {
+          output+= "`/~/`"
+        }
+      } catch (_) {}
+    }
+    return output;
   }
 
   async undo() {
@@ -616,43 +646,52 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async savedialog() {
-    sync_templog = false;
-    if (entries.length > 0) {
-      const dialog = new Adw.AlertDialog({
-        heading: "Save or New?",
-        body: "You currently have time entries in your log. Do you want to save " +
-        "those entries to the new log file, or do you want to start over, without any entries?",
-        close_response: "save"
-      });
-      dialog.add_response("new", "Start Over");
-      dialog.add_response("save", "Save My Data");
-      dialog.connect("response", async (_, response_id) => {
-        if (response_id === "new") {
-          const file = Gio.File.new_for_path(logpath);
-
-          // If the file exists
-          if (file.query_exists(null)) {
-            await this.createfile(logpath);
-          } else {
-            await this.writetofile(logpath, "Project,Start,End,ID");
+    try {
+      sync_templog = false;
+      if (entries.length > 0) {
+        const dialog = new Adw.AlertDialog({
+          heading: "Save or New?",
+          body: "You currently have time entries in your log. Do you want to save " +
+          "those entries to the new log file, or do you want to start over, without any entries?",
+          close_response: "save"
+        });
+        dialog.add_response("new", "Start Over");
+        dialog.add_response("save", "Save My Data");
+        dialog.connect("response", async (_, response_id) => {
+          try {
+            const file = Gio.File.new_for_path(logpath);
+            if (response_id === "new") {
+              // If the file exists
+              if (!file.query_exists(null)) {
+                await this.createfile(logpath);
+              } else {
+                await this.writetofile(logpath, "Project,Start,End,ID");
+              }
+              sync_firsttime = true;
+              // Empty sync_extracolumns
+              sync_extracolumns = [];
+              await this.setentries([]);
+            } else {
+              if (!file.query_exists(null)) {
+                await this.createfile(logpath);
+              }
+              await this.writelog();
+            }
+            // Set up sync timer
+            this.setsynctimer();
+          } catch (e) {
+            console.log(e);
           }
-          sync_firsttime = true;
-          // Empty sync_extracolumns
-          sync_extracolumns = [];
-          await this.setentries([]);
-        } else {
-          await this.createfile(logpath);
-          await this.writelog();
-        }
+        });
+        dialog.present(this);
+      } else {
+        await this.createfile(logpath);
+        await this.writelog();
         // Set up sync timer
         this.setsynctimer();
-      });
-      dialog.present(this);
-    } else {
-      await this.createfile(logpath);
-      await this.writelog();
-      // Set up sync timer
-      this.setsynctimer();
+      }
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -914,10 +953,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         false,
         Gio.FileCreateFlags.REPLACE_DESTINATION,
         null);
-      //sync_operation = 0;
       if (notify) {
-        //sync_memory = contentsBytes;
-        this._toast_overlay.add_toast(Adw.Toast.new(`Saved to file ${filepath}`));
+        console.log(`Saved to file ${filepath}`);
       }
     } catch (e) {
       //sync_operation = 0;
@@ -1011,7 +1048,8 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Update the project of the currently running entry
   async editrunningentrybyIndex(theproject, meta) {
     let current = this.currentTimer();
-    if (current) {
+    //console.log(current);
+    if (current != null) {
       //Is this code needed? {{{
       if (theproject == "") {
         theproject = entries[current].project;
@@ -1169,10 +1207,12 @@ export const TimeTrackerWindow = GObject.registerClass({
             const value = selection.value;
             if (selection) {
               theproject = value;
-              nochange = true;
-              this._projectlist.set_selected(projectlist2.get_selected());
-              this._metaentry.set_text(metaentry2.get_text());
-              nochange = false;
+              if (number == this.currentTimer()) {
+                nochange = true;
+                this._projectlist.set_selected(projectlist2.get_selected());
+                this._metaentry.set_text(metaentry2.get_text());
+                nochange = false;
+              }
             }
             if (metaentry2.get_text() != "") {
               meta = metaentry2.get_text();
@@ -1209,62 +1249,72 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Present a dialog where the user can edit the projects that show in the projectlist
   async editprojectdialog() {
-    const dialog = new Adw.AlertDialog({
-      heading: "Edit Projects",
-      body: "Separate projects with line breaks. You can include #tags and @clients.",
-      close_response: "cancel",
-    });
+    try {
+      const dialog = new Adw.AlertDialog({
+        heading: "Edit Projects",
+        body: "Separate projects with line breaks. You can include #tags and @clients.",
+        close_response: "cancel",
+      });
 
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("okay", "OK");
+      dialog.add_response("cancel", "Cancel");
+      dialog.add_response("okay", "OK");
 
-    const view = new Gtk.TextView({
-      editable: true,
-    });
-    const { buffer } = view;
-    let editableProjects = projects.slice(1);
-    buffer.set_text(editableProjects.join("\n"), -1);
+      const frame = new Gtk.Frame();
+      const view = new Gtk.TextView({
+        editable: true,
+        bottom_margin: 4,
+        top_margin: 4,
+        left_margin: 4,
+        right_margin: 4,
+      });
+      const { buffer } = view;
+      let editableProjects = projects.slice(1);
+      buffer.set_text(editableProjects.join("\n"), -1);
 
-    dialog.set_extra_child(view);
+      frame.set_child(view);
+      dialog.set_extra_child(frame);
 
-    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
-    dialog.connect("response", (_, response_id) => {
-      if (response_id === "okay") {
-        let newprojects = buffer.get_text(
-          buffer.get_start_iter(),
-          buffer.get_end_iter(),
-          false,
-        );
-        // Remove leading and trailing line breaks
-        newprojects = newprojects.trim();
+      dialog.connect("response", (_, response_id) => {
+        if (response_id === "okay") {
+          let newprojects = buffer.get_text(
+            buffer.get_start_iter(),
+            buffer.get_end_iter(),
+            false,
+          );
+          // Remove leading and trailing line breaks
+          newprojects = newprojects.trim();
 
-        // Ensure there are never two line breaks following each other
-        newprojects = newprojects.replace(/\n\n/g, "\n");
+          // Ensure there are never two line breaks following each other
+          newprojects = newprojects.replace(/\n\n/g, "\n");
 
-        // Remove any commas
-        newprojects = newprojects.replace("`", "'");
+          // Remove any commas
+          newprojects = newprojects.replace("`", "'");
 
-        editableProjects = newprojects.split("\n");
-        let newArray = [];
-        let newString = "";
+          editableProjects = newprojects.split("\n");
+          let newArray = [];
+          let newString = "";
 
-        for (let i = 0; i < editableProjects.length; i++) {
-          const proj = editableProjects[i];
-          if (proj != "") {
-            newArray.push(proj);
-            newString += proj;
-            if (i < editableProjects.length - 1) {
-              newString += "`";
+          for (let i = 0; i < editableProjects.length; i++) {
+            const proj = editableProjects[i];
+            if (proj != "") {
+              newArray.push(proj);
+              newString += proj;
+              if (i < editableProjects.length - 1) {
+                newString += "`";
+              }
             }
           }
+          this.setprojects(newArray);
+          this._settings.set_string("projects", newString);
         }
-        this.setprojects(newArray);
-        this._settings.set_string("projects", newString);
-      }
-    });
+      });
 
-    dialog.present(this);
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   async editentrybyID(ID, project, start, end, billed, meta) {
@@ -1579,86 +1629,29 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Not very well written; should be updated. {{{
   async updatetotals() {
     try {
-      // Find the beginning of today
-      let todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      /*
+        - destroys all existing reporting widgets (all children of this._nav_view)
+        - empties filters[] and nav_pages[]
+        - reads through the list of reports, creating each one with displayfilter(reports[0]);
+        - creates custom report with displaycustomfilter();
+      */
+      //this.firstdayofweek = this._settings.get_int("firstdayofweek");
 
-      // Find the end of today
-      let todayEnd = new Date();
-      todayEnd.setHours(23, 59, 59, 999);
-
-      // Find the start of this week
-      let thisWeekStart;
-      for (let i = 0; i >= -6; i--) {
-        let currentDate = new Date();
-        currentDate.setDate(todayStart.getDate() + i);
-        if (currentDate.getDay() === firstdayofweek) {
-          thisWeekStart = currentDate;
+      for (let i = 0; i < 100; i++) {
+        let child = this._presetreports.get_first_child();
+        if (child) {
+          child.unparent();
+          child.run_dispose();
+        } else {
           break;
         }
       }
-      thisWeekStart.setHours(0, 0, 0, 0);
 
-      // Find the start of last week
-      let lastWeekStart = new Date(thisWeekStart);
-      lastWeekStart.setDate(thisWeekStart.getDate() - 7); // Get the day one week before thisWeekStart
-      lastWeekStart.setHours(0, 0, 0, 0);
-
-      // Find the end of last week
-      let lastWeekEnd = new Date(thisWeekStart);
-      lastWeekEnd.setDate(thisWeekStart.getDate() - 1);
-      lastWeekEnd.setHours(23, 59, 59, 999);
-
-      /*
-      this._todaylabel.label = this.createtotals(todayStart, todayEnd);
-      this._thisweeklabel.label = this.createtotals(thisWeekStart, todayEnd);
-      this._lastweeklabel.label = this.createtotals(lastWeekStart, lastWeekEnd);
-      this._customlabel.label = this.createtotals(customstart, customend);
-      this._alltimelabel.label = this.createtotals(null, null);
-      */
-
-      // Empty filters[]
-      if (this._reportsbox1) {
-        this._reportsbox1?.unparent();
-        this._reportsbox1?.run_dispose();
-        filters = [];
+      for (let i = 1; i < reports.length; i++) {
+        if (!reports[i].deleted) { // This if should probably not be needed
+          this.displayfilter(reports[i]);
+        }
       }
-      this._reportsbox1 = new Gtk.Box({
-        orientation: 1,
-        spacing: 12,
-      });
-      this._report1.append(this._reportsbox1);
-
-
-      // Empty filters[]
-      if (this._reportsbox2) {
-        this._reportsbox2?.unparent();
-        this._reportsbox2?.run_dispose();
-        filters = [];
-      }
-      this._reportsbox2 = new Gtk.Box({
-        orientation: 1,
-        spacing: 12,
-      });
-      this._report2.append(this._reportsbox2);
-
-
-      // Empty filters[]
-      if (this._reportsbox3) {
-        this._reportsbox3?.unparent();
-        this._reportsbox3?.run_dispose();
-        filters = [];
-      }
-      this._reportsbox3 = new Gtk.Box({
-        orientation: 1,
-        spacing: 12,
-      });
-      this._report3.append(this._reportsbox3);
-
-
-      this.displayfilter(this._reportsbox1, "Today", false, 1, todayStart, todayEnd);
-      this.displayfilter(this._reportsbox2, "This Week", false, 1, thisWeekStart, todayEnd);
-      this.displayfilter(this._reportsbox3, "Last Week", false, 1, lastWeekStart, lastWeekEnd);
 
       this.displaycustomfilter();
     } catch (e) {
@@ -1668,6 +1661,34 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   async displaycustomfilter() {
     try {
+      for (let i = 0; i < 100; i++) {
+        let child = this._reportdata.get_first_child();
+        if (child) {
+          child.unparent();
+          child.run_dispose();
+        } else {
+          break;
+        }
+      }
+
+      const report = reports[0];
+      let startDate = new Date();
+      if (report.start && isNaN(report.start)) {
+        startDate = this.editdate(startDate, report.start, true);
+      } else {
+        startDate = report.start;
+      }
+
+      let endDate = new Date();
+      if (report.end && isNaN(report.end)) {
+        endDate = this.editdate(endDate, report.end, false);
+      } else {
+        endDate = report.end;
+      }
+
+      const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
+      this.displayfilterpart(this._reportdata, "Total", filter, report.groupby, startDate, endDate);
+      /*
       if (this._customreportsbox) {
         this._customreportsbox.unparent();
         this._customreportsbox.run_dispose();
@@ -1681,157 +1702,498 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       this._customreport.append(this._customreportsbox);
       customfilter = this.displayfilter(this._customreportsbox, null, true, customgroup, customstart, customend, customproject, custombilled, customtag, customclient);
+      */
     } catch (e) {
       console.log(e);
     }
   }
 
-  // This function displays a preset group of filters in the Preset area
-  // groupby = 0 : no grouping
-  // groupby = 1 : project
-  // groupby = 2 : billed
-  async displayfilter(widget, title = null, usedescription = false, groupby = 0, startDate = null, endDate = null, theproject = null, billed = null, tag = null, client = null) {
-    try {
-      let outputentries = this.filterentries(startDate, endDate, theproject, billed, tag, client);
-      let duration = this.secondstoOutput(outputentries[0].duration);
-      let description = "";
-      if (startDate && endDate) {
-        description = this.datetotext(startDate, ", ") + " to " + this.datetotext(endDate, ", ");
-      } else if (startDate) {
-        description = "All entries after " + this.datetotext(startDate, ", ");
-      } else if (endDate) {
-        description = "All entries before " + this.datetotext(endDate, ", ");
+  reportcontrols(report) {
+    const box = new Gtk.Box({
+      orientation: 1,
+      spacing: 6,
+      halign: 3,
+    });
+    const box1 = new Gtk.Box({
+      halign: 3,
+    });
+    let style = box1.get_style_context();
+    style.add_class("linked");
+    const box2 = new Gtk.Box({
+      halign: 3,
+    });
+    let style2 = box2.get_style_context();
+    style2.add_class("linked");
+    box.append(box1);
+    box.append(box2);
+
+    const startbutton = new Gtk.Button();
+    const endbutton = new Gtk.Button();
+    box1.append(startbutton);
+    box1.append(endbutton);
+    const filterbutton = new Gtk.Button();
+    const groupbutton = new Gtk.Button();
+    box2.append(filterbutton);
+    box2.append(groupbutton);
+
+    if (report.start) {
+      if (isNaN(report.start)) {
+        startbutton.set_label(this.datetohuman(report.start));
       } else {
-        description = "All entries";
+        startbutton.set_label(this.datetotext(report.start));
       }
-      let fronttext = "";
-      if (theproject) {
-        fronttext += theproject;
+    } else {
+      startbutton.set_label("Start Date");
+    }
+    if (report.end) {
+      if (isNaN(report.end)) {
+        endbutton.set_label(this.datetohuman(report.end));
+      } else {
+        endbutton.set_label(this.datetotext(report.end));
       }
-      if (tag) {
-        if (fronttext != "") {
-          fronttext += " ";
-        }
-        fronttext += "#" + tag;
+    } else {
+      endbutton.set_label("End Date");
+    }
+    let numberoffilters = 0;
+    if (report.filters) {
+      if (report.filters.project) {
+        numberoffilters += 1;
       }
-      if (client) {
-        if (fronttext != "") {
-          fronttext += " ";
-        }
-        fronttext += "@" + client;
+      if (report.filters.billed != null) {
+        numberoffilters += 1;
       }
-      if (billed) {
-        if (fronttext != "") {
-          fronttext += " ";
-        }
-        fronttext += "(Billed)";
-      } else if (billed == false) {
-        if (fronttext != "") {
-          fronttext += " ";
-        }
-        fronttext += "(Unbilled)";
+      if (report.filters.tag) {
+        numberoffilters += 1;
       }
-      if (fronttext != "") {
-        fronttext += ": ";
+      if (report.filters.client) {
+        numberoffilters += 1;
       }
-      description = fronttext + description;
+    }
+    filterbutton.set_label("Filters: " + numberoffilters);
+    if (report.groupby) {
+      groupbutton.set_label("Groups: " + report.groupby.length);
+    } else {
+      groupbutton.set_label("Groups: 0");
+    }
 
-      // Create a new object
-      const output = {
-        title: title,
-        groupby: groupby,
-        start: startDate,
-        end: endDate,
-        project: theproject,
-        billed: billed,
-        tag: tag,
-        client: client,
-        entrygroups: [outputentries],
-        duration: duration,
-        buttons: [],
-        descriptions: ["All"],
-      };
-
-      if (title) {
-        // Create a title label
-        output.label = new Gtk.Label({
-          label: title,
-        });
-        let titlestyle = output.label.get_style_context();
-        titlestyle.add_class("title-1");
-      }
-      if (usedescription) {
-        output.desc = new Gtk.Label({
-          label: description,
-          wrap: true,
-          margin_top: 12,
-          margin_bottom: 12,
-        });
-      }
-
-      output.box = new Gtk.Box({
-        orientation: 1,
+    startbutton.connect("clicked", () => {
+      this.reportdatedialog(report.start, (date) => {
+        report.start = date;
+        this.displaycustomfilter();
+        if (report.start) {
+          if (isNaN(report.start)) {
+            startbutton.set_label(this.datetohuman(report.start));
+          } else {
+            startbutton.set_label(this.datetotext(report.start));
+          }
+        } else {
+          startbutton.set_label("Start Date");
+        }
+      }, true);
+    });
+    endbutton.connect("clicked", () => {
+      this.reportdatedialog(report.end, (date) => {
+        report.end = date;
+        this.displaycustomfilter();
+        if (report.end) {
+          if (isNaN(report.end)) {
+            endbutton.set_label(this.datetohuman(report.end));
+          } else {
+            endbutton.set_label(this.datetotext(report.end));
+          }
+        } else {
+          endbutton.set_label("End Date");
+        }
+      }, false);
+    });
+    filterbutton.connect("clicked", () => {
+      this.reportfiltersdialog(report, () => {
+        let numberoffilters = 0;
+        try {
+          if (report.filters.project) {
+            numberoffilters += 1;
+          }
+          if (report.filters.billed != null) {
+            numberoffilters += 1;
+          }
+          if (report.filters.tag) {
+            numberoffilters += 1;
+          }
+          if (report.filters.client) {
+            numberoffilters += 1;
+          }
+        } catch (_) {}
+        filterbutton.set_label("Filters: " + numberoffilters);
+        this.displaycustomfilter();
       });
-      let boxstyle = output.box.get_style_context();
-      boxstyle.add_class("linked");
+    });
+    groupbutton.connect("clicked", () => {
+      this.groupdialog(report, () => {
+        if (report.groupby) {
+          groupbutton.set_label("Groups: " + report.groupby.length);
+        } else {
+          groupbutton.set_label("Groups: 0");
+        }
+        this.displaycustomfilter();
+      });
+    });
+    return box;
+  }
 
-      output.buttons.push(new Gtk.Button({
-        label: "Total: " + duration,
-      }));
+  datetohuman(string) {
+    let output = string;
+    if (string == "day+0" || string == "day-0") {
+      output = "Today";
+    } else if (string == "week+0" || string == "week-0") {
+      output = "This Week";
+    } else if (string == "month+0" || string == "month-0") {
+      output = "This Month";
+    } else if (string == "year+0" || string == "year-0") {
+      output = "This Year";
+    } else if (string == "day-1") {
+      output = "Yesterday";
+    } else if (string == "week-1") {
+      output = "Last Week";
+    } else if (string == "month-1") {
+      output = "Last Month";
+    } else if (string == "year-1") {
+      output = "Last Year";
+    } else if (string == "day+1") {
+      output = "Tomorrow";
+    } else if (string == "week+1") {
+      output = "Next Week";
+    } else if (string == "month+1") {
+      output = "Next Month";
+    } else if (string == "year+1") {
+      output = "Next Year";
+    } else {
+      if (string.indexOf("+") > -1) {
+        let a = string.split("+");
+        let now = "";
+        if (a[0] == "day") {
+          now = "today";
+        } else {
+          now = "this " + a[0];
+        }
+        output = a[1] + " " + a[0] + "s after\n" + now;
+      } else if (string.indexOf("-") > -1) {
+        let a = string.split("-");
+        let now = "";
+        if (a[0] == "day") {
+          now = "today";
+        } else {
+          now = "this " + a[0];
+        }
+        output = a[1] + " " + a[0] + "s before\n" + now;
+      }
+    }
+    return output;
+  }
 
-      if (groupby == 1) {
-        // Go through each project
-        for (let i = 0; i < projects.length; i++) {
-          let entrygroup = this.filterentries(startDate, endDate, projects[i], billed, tag, client);
-          if (entrygroup[0].duration > 0) {
-            output.entrygroups.push(entrygroup);
-            output.buttons.push(new Gtk.Button({
-              label: projects[i] + ": " + this.secondstoOutput(entrygroup[0].duration),
-            }));
-            output.descriptions.push("Project: " + projects[i]);
+  // edit is in the form of day+0, week-10, etc.
+  // start = true means that it's at the start of the time period
+  editdate(date, edit, start) {
+    if (start) {
+      date.setHours(0, 0, 0, 0);
+    } else {
+      date.setHours(23, 59, 59, 999);
+    }
+    if (edit.indexOf("+") > -1) {
+      let a = edit.split("+");
+      if (a[0] == "day") {
+        date.setDate(date.getDate() + parseInt(a[1]));
+      } else if (a[0] == "week") {
+        for (let i = 0; i >= -6; i--) {
+          let currentDate = new Date(date);
+          currentDate.setDate(date.getDate() + i);
+          if (currentDate.getDay() === this.firstdayofweek) {
+            date = currentDate;
+            break;
           }
         }
-      } else if (groupby == 2) {
-        // Go through billed or not
-        let billedentries = this.filterentries(startDate, endDate, theproject, true);
-        let unbilledentries = this.filterentries(startDate, endDate, theproject, false);
-        if (unbilledentries[0].duration > 0) {
-          output.entrygroups.push(unbilledentries);
-          output.buttons.push(new Gtk.Button({
-            label: "Unbilled: " + this.secondstoOutput(unbilledentries[0].duration),
-          }));
-          output.descriptions.push("Billed: No");
+        if (!start) {
+          date.setDate(date.getDate() + 6);
         }
-        if (billedentries[0].duration > 0) {
-          output.entrygroups.push(billedentries);
-          output.buttons.push(new Gtk.Button({
-            label: "Billed: " + this.secondstoOutput(billedentries[0].duration),
-          }));
-          output.descriptions.push("Billed: Yes");
+        date.setDate(date.getDate() + (parseInt(a[1]) * 7));
+      } else if (a[0] == "month") {
+        date.setMonth(date.getMonth() + parseInt(a[1]));
+        if (start) {
+          date.setDate(1);
+        } else {
+          let newdate = new Date(date);
+          newdate.setDate(1);
+          newdate.setMonth(newdate.getMonth() + 1);
+          newdate.setDate(newdate.getDate() - 1);
+          date.setDate(newdate.getDate());
         }
+      } else if (a[0] == "year") {
+        date.setFullYear(date.getFullYear() + parseInt(a[1]));
+        if (start) {
+          date.setMonth(0);
+          date.setDate(1);
+        } else {
+          date.setMonth(11);
+          date.setDate(31);
+        }
+      }
+    } else if (edit.indexOf("-") > -1) {
+      let a = edit.split("-");
+      if (a[0] == "day") {
+        date.setDate(date.getDate() - parseInt(a[1]));
+      } else if (a[0] == "week") {
+        for (let i = 0; i >= -6; i--) {
+          let currentDate = new Date(date);
+          currentDate.setDate(date.getDate() + i);
+          if (currentDate.getDay() === this.firstdayofweek) {
+            date = currentDate;
+            break;
+          }
+        }
+        if (!start) {
+          date.setDate(date.getDate() + 6);
+        }
+        date.setDate(date.getDate() - (parseInt(a[1]) * 7));
+      } else if (a[0] == "month") {
+        date.setMonth(date.getMonth() - parseInt(a[1]));
+        if (start) {
+          date.setDate(1);
+        } else {
+          let newdate = new Date(date);
+          newdate.setDate(1);
+          newdate.setMonth(newdate.getMonth() + 1);
+          newdate.setDate(newdate.getDate() - 1);
+          date.setDate(newdate.getDate());
+        }
+      } else if (a[0] == "year") {
+        date.setFullYear(date.getFullYear() - parseInt(a[1]));
+        if (start) {
+          date.setMonth(0);
+          date.setDate(1);
+        } else {
+          date.setMonth(11);
+          date.setDate(31);
+        }
+      }
+    }
+    //console.log("Relative date: " + edit + ". Specific date: " + date);
+    return date;
+  }
+
+  filterbuttons(parent, title, filter, start, end) { //, startDate, endDate, theproject, billed, tag, client) {
+    const box = new Gtk.Box({
+      hexpand: true,
+      margin_top: 3,
+      margin_bottom: 3,
+    });
+    const label = new Gtk.Label();
+    label.set_markup("<b>" + title + ":</b>");
+    const button = new Gtk.Button({
+      label: this.secondstoOutput(filter[0].duration),
+      hexpand: true,
+      halign: 2,
+    });
+    if (filter.length > 1) {
+      button.connect("clicked", () => {
+        this.bulkeditdialog(filter, start, end); //, startDate, endDate, theproject, billed, tag, client);
+      });
+    }
+    box.append(label);
+    box.append(button);
+    parent.append(box);
+  }
+
+  // This function displays a preset group of filters in the Preset area
+  async displayfilter(report) {
+    try {
+      const frame = new Gtk.Frame({
+        margin_bottom: 24,
+      });
+      const box = new Gtk.Box({
+        orientation: 1,
+        hexpand: true,
+        margin_start: 24,
+        margin_end: 24,
+        margin_top: 24,
+        margin_bottom: 24,
+      });
+      frame.set_child(box);
+      const label = new Gtk.Label({
+        label: report.title,
+        margin_bottom: 12,
+      });
+      let style = label.get_style_context();
+      style.add_class("title-1");
+      box.append(label);
+      const box1 = new Gtk.Box({
+        orientation: 1,
+        hexpand: true,
+      });
+      box.append(box1);
+
+      let startDate = new Date();
+      if (report.start && isNaN(report.start)) {
+        startDate = this.editdate(startDate, report.start, true);
+      } else {
+        startDate = report.start;
       }
 
-      // Add output to filters[]
-      let filterslength = filters.length;
-      filters.push(output);
+      let endDate = new Date();
+      if (report.end && isNaN(report.end)) {
+        endDate = this.editdate(endDate, report.end, false);
+      } else {
+        endDate = report.end;
+      }
 
-      // Add title and button to the right control
-      if (title) {
-        widget.append(filters[filterslength].label);
-      }
-      if (usedescription) {
-        widget.append(filters[filterslength].desc);
-      }
-      widget.append(filters[filterslength].box);
-      for (let i = 0; i < filters[filterslength].buttons.length; i ++) {
-        filters[filterslength].box.append(filters[filterslength].buttons[i]);
-        let thefilter = filters[filterslength];
-        filters[filterslength].buttons[i].connect("clicked", () => {
-          this.bulkeditdialog(thefilter, i);
+      const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
+      this.displayfilterpart(box1, "Total", filter, report.groupby, startDate, endDate);
+
+      this._presetreports.append(frame);
+
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  displayfilterpart(parent, title, filter, groupby, start, end) {
+    try {
+      this.filterbuttons(parent, title, filter, start, end);
+
+      if (groupby.length > 0) {
+        const box = new Gtk.Box({
+          orientation: 1,
+          margin_start: 24,
         });
+        parent.append(box);
+
+        let newgroupby = [];
+        if (groupby.length > 1) {
+          for (let i = 1; i < groupby.length; i++) {
+            newgroupby.push(groupby[i]);
+          }
+        }
+
+        let groups = this.groupentries(filter, groupby[0]);
+
+        for (let i = 0; i < groups.length; i++) {
+          this.displayfilterpart(box, groups[i].title, groups[i].filter, newgroupby, start, end);
+        }
+      }
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  groupentries(filter, groupby) {
+    try {
+      let groups = [];
+
+      if (groupby == "billed") {
+        groups.push({title: "Billed", filter: [{duration: 0}]});
+        groups.push({title: "Unbilled", filter: [{duration: 0}]});
+        // Go through each entry in filter
+        for (let i = 1; i < filter.length; i++) {
+          let entry = entries[this.findindexbyID(filter[i].ID)];
+          let duration = 0;
+          if (entry.end) {
+            duration = Math.floor((entry.end - entry.start) / 1000);
+          }
+
+          if (entry.billed) {
+            groups[0].filter.push({ ID: entry.ID, duration: duration, });
+            groups[0].filter[0].duration += duration;
+          } else {
+            groups[1].filter.push({ ID: entry.ID, duration: duration, });
+            groups[1].filter[0].duration += duration;
+          }
+        }
+        if (groups[1].filter.length < 2) {
+          groups.splice(1, 1);
+        } else if (groups[0].filter.length < 2) {
+          groups.splice(0, 1);
+        }
+
+      } else if (groupby == "project") {
+
+        for (let i = 1; i < filter.length; i++) {
+          let entry = entries[this.findindexbyID(filter[i].ID)];
+          let duration = 0;
+          if (entry.end) {
+            duration = Math.floor((entry.end - entry.start) / 1000);
+          }
+
+          const foundItem = groups.find(item => item.title === entry.project);
+          if (foundItem) {
+            const spot = groups.indexOf(foundItem);
+            groups[spot].filter.push({ ID: entry.ID, duration: duration, });
+            groups[spot].filter[0].duration += duration;
+          } else {
+            groups.push({title: entry.project, filter: [{duration: duration}, { ID: entry.ID, duration: duration, }]})
+          }
+        }
+
+      } else if (groupby == "tag" || groupby == "client") {
+
+        for (let i = 1; i < filter.length; i++) {
+          let entry = entries[this.findindexbyID(filter[i].ID)];
+          let duration = 0;
+          if (entry.end) {
+            duration = Math.floor((entry.end - entry.start) / 1000);
+          }
+
+          let tagsearch = " " + entry.project.replace(/[\r\n]+/g, ' ') + " ";
+          if (entry.meta) {
+            tagsearch += entry.meta.replace(/[\r\n]+/g, ' ') + " ";
+          }
+          let char = "#";
+          if (groupby == "client") {
+            char = "@";
+          }
+
+          let tags = [];
+          for (let j = 0; j < tagsearch.length; j++) {
+            j = tagsearch.indexOf(" " + char, j);
+            if (j < 0) {
+              break;
+            } else {
+              let tag = tagsearch.slice(j + 2);
+              if (tag.slice(0, 1) != " ") {
+                tag = char + tag.split(" ")[0].toLowerCase();
+                if (!tags.includes(tag)) {
+                  tags.push(tag);
+                }
+                j += tag.length + 2;
+              } else {
+                j += 2;
+              }
+            }
+          }
+
+          if (tags.length == 0) {
+            let title = "(no " + groupby + ")";
+            const foundItem = groups.find(item => item.title === title);
+            if (foundItem) {
+              const spot = groups.indexOf(foundItem);
+              groups[spot].filter.push({ ID: entry.ID, duration: duration, });
+              groups[spot].filter[0].duration += duration;
+            } else {
+              groups.unshift({title: title, filter: [{duration: duration}, { ID: entry.ID, duration: duration, }]})
+            }
+          } else {
+            for (let j = 0; j < tags.length; j++) {
+              const foundItem = groups.find(item => item.title === tags[j]);
+              if (foundItem) {
+                const spot = groups.indexOf(foundItem);
+                groups[spot].filter.push({ ID: entry.ID, duration: duration, });
+                groups[spot].filter[0].duration += duration;
+              } else {
+                groups.push({title: tags[j], filter: [{duration: duration}, { ID: entry.ID, duration: duration, }]})
+              }
+            }
+          }
+        }
       }
 
-      return filterslength;
+      return groups;
     } catch (e) {
       console.log(e);
     }
@@ -2058,18 +2420,19 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async bulkeditdialog(thefilter, index) {
+  async bulkeditdialog(filteredentries, start, end) { //, start, end, theproject, billed, tag, client) {
     try {
+      console.log("Preparing to bulk edit " + filteredentries.length + " entries between " + start + " and " + end);
       const dialog = new Adw.AlertDialog({
         heading: "Bulk Edit Entries",
         close_response: "cancel",
       });
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "Edit Entries");
-      let startDate = thefilter.start;
-      let endDate = thefilter.end;
-      let theproject = thefilter.project;
-      let billed = thefilter.billed;
+      /*
+      let startDate = start;
+
+      let endDate = end;
 
       let body = "";
       if (!startDate && !endDate && !theproject && billed == null) {
@@ -2090,11 +2453,9 @@ export const TimeTrackerWindow = GObject.registerClass({
         } else if (billed == false) {
           body += "\nBilled: No";
         }
-        if (index > 0) {
-          body += "\n" + thefilter.descriptions[index];
-        }
       }
       dialog.body = body;
+      */
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.DESTRUCTIVE);
 
@@ -2156,7 +2517,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             newbilled = false;
           }
 
-          this.bulkeditentries(thefilter.entrygroups[index], newproject, newbilled, thefilter.start, thefilter.end);
+          this.bulkeditentries(filteredentries, newproject, newbilled, start, end);
         }
       });
 
@@ -2166,54 +2527,149 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async groupdialog(groupby = null, tocall = null) {
+  async groupdialog(report, tocall = null) {
     try {
-      const dialog = new Adw.AlertDialog({
-        heading: "Select Grouping",
-        close_response: "cancel",
-      });
+      const dialog = new Adw.AlertDialog();
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
       const box = new Gtk.Box({
         orientation: 1,
       });
+      const listbox = new Gtk.ListBox({
+        height_request: 24,
+        margin_bottom: 6,
+      });
+      const style = listbox.get_style_context();
+      style.add_class("boxed-list");
+      const listbox2 = new Gtk.ListBox({
+        height_request: 24,
+      });
+      const style2 = listbox2.get_style_context();
+      style2.add_class("boxed-list");
 
-      let groupnull = new Gtk.CheckButton({
-        label: "No grouping",
-      });
-      let groupproject = new Gtk.CheckButton({
-        label: "Project",
-        group: groupnull,
-      });
-      let groupbilled = new Gtk.CheckButton({
-        label: "Billed",
-        group: groupnull,
-      });
-      box.append(groupnull);
-      box.append(groupproject);
-      box.append(groupbilled);
-
-      if (groupby == 1) {
-        groupproject.set_active(true);
-      } else if (groupby == 2) {
-        groupbilled.set_active(true);
-      } else {
-        groupnull.set_active(true);
+      let titles = ["project", "billed", "tag", "client"];
+      for (let i = 0; i < 4; i++) {
+        let title = "";
+        const row = new Adw.ActionRow();
+        if (i < report.groupby.length) {
+          title = report.groupby[i];
+          titles.splice(titles.indexOf(title), 1);
+          title = title.charAt(0).toUpperCase() + title.slice(1);
+          row.title = title;
+          listbox.append(row);
+        } else {
+          title = titles[0];
+          titles.splice(0, 1);
+          title = title.charAt(0).toUpperCase() + title.slice(1);
+          row.title = title;
+          listbox2.append(row);
+        }
       }
+
+      const controlbox = new Gtk.Box({
+        orientation: 1,
+        halign: 3,
+      });
+      const usebox = new Gtk.Box({
+        halign: 3,
+        margin_bottom: 6,
+      });
+      let usestyle = usebox.get_style_context();
+      usestyle.add_class("linked");
+      const movebox = new Gtk.Box({
+        halign: 3,
+        margin_bottom: 12,
+      });
+      let movestyle = movebox.get_style_context();
+      movestyle.add_class("linked");
+      const add = new Gtk.Button({
+        label: "Add",
+      });
+      const remove = new Gtk.Button({
+        label: "Remove",
+      });
+      const up = new Gtk.Button({
+        label: "Move Up",
+      });
+      const down = new Gtk.Button({
+        label: "Move Down",
+      });
+      usebox.append(add);
+      usebox.append(remove);
+      movebox.append(up);
+      movebox.append(down);
+      controlbox.append(movebox);
+      controlbox.append(usebox);
+
+      add.connect("clicked", () => {
+        const selection = listbox2.get_selected_row();
+        if (selection) {
+          const row = new Adw.ActionRow({
+            title: selection.get_title(),
+          });
+          listbox.append(row);
+          listbox2.remove(selection);
+        }
+      });
+      remove.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          const row = new Adw.ActionRow({
+            title: selection.get_title(),
+          });
+          listbox2.append(row);
+          listbox.remove(selection);
+        }
+      });
+      up.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          let number = selection.get_index();
+          if (number > 0) {
+            const row = new Adw.ActionRow({
+              title: selection.get_title(),
+            });
+            listbox.insert(row, number - 1);
+            listbox.remove(selection);
+            listbox.select_row(row);
+          }
+        }
+      });
+      down.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          let number = selection.get_index();
+          if (selection != listbox.get_last_child()) {
+            const row = new Adw.ActionRow({
+              title: selection.get_title(),
+            });
+            listbox.remove(selection);
+            listbox.insert(row, number + 1);
+            listbox.select_row(row);
+          }
+        }
+      });
+
+      box.append(listbox);
+      box.append(controlbox);
+      box.append(listbox2);
 
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
         if (response_id === "okay") {
-          if (tocall && typeof tocall === 'function') {
-            let newgroupby = 0;
-            if (groupproject.get_active()) {
-              newgroupby = 1;
-            } else if (groupbilled.get_active()) {
-              newgroupby = 2;
+          report.groupby = [];
+          for (let i = 0; i < 4; i++) {
+            const row = listbox.get_row_at_index(i);
+            if (row) {
+              let title = row.get_title();
+              report.groupby.push(title.toLowerCase());
             }
-            tocall(newgroupby);
+          }
+          if (tocall && typeof tocall === 'function') {
+            tocall();
           }
         }
       });
@@ -2224,23 +2680,282 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async billeddialog(billed = null, tocall = null, commonname = "No change") {
+  async reportsdialog() {
     try {
       const dialog = new Adw.AlertDialog({
-        heading: "Select Billed Status",
+        heading: "Create and Edit Reports",
+        close_response: "okay",
+      });
+      dialog.add_response("okay", "Done");
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box = new Gtk.Box({
+        orientation: 1,
+      });
+      const box1 = new Gtk.Box({
+        halign: 3,
+        margin_bottom: 12,
+      });
+      const boxstyle = box1.get_style_context();
+      boxstyle.add_class("linked");
+
+      const add = new Gtk.Button({
+        icon_name: "list-add-symbolic",
+      });
+      add.connect("clicked", () => {
+        this.reportdialog(null, (response) => {
+          if (response == "okay") {
+            const row = new Adw.ActionRow();
+            row.title = reports[reports.length - 1].title;
+            listbox.append(row);
+          }
+        });
+      });
+      /*
+      const addcontent = new Adw.ButtonContent({
+        label: "New Report",
+        icon_name: "list-add-symbolic",
+      });
+      add.set_child(addcontent);
+      */
+      box1.append(add);
+
+      const edit = new Gtk.Button({
+        icon_name: "timetracker-edit-symbolic",
+      });
+      edit.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          let number = selection.get_index();
+          if (number > -1) {
+            this.reportdialog(reports[number + 1], (response) => {
+              if (response == "okay") {
+                const row = new Adw.ActionRow({
+                  title: reports[number + 1].get_title(),
+                });
+                listbox.remove(selection);
+                listbox.insert(row, number);
+                listbox.select_row(row);
+              } else if (response == "delete") {
+                listbox.remove(selection);
+              }
+            });
+          }
+        }
+      });
+      box1.append(edit);
+
+      const up = new Gtk.Button({
+        icon_name: "timetracker-up-symbolic",
+      });
+      up.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          let number = selection.get_index();
+          if (number > 0) {
+            const row = new Adw.ActionRow({
+              title: selection.get_title(),
+            });
+            listbox.insert(row, number - 1);
+            listbox.remove(selection);
+            listbox.select_row(row);
+            if (number > 0 && number < reports.length - 1) {
+              [reports[number], reports[number + 1]] = [reports[number + 1], reports[number]];
+            }
+            this.updatetotals();
+
+            let reportstowrite = [];
+            for (let i = 1; i < reports.length; i++) {
+              if (!reports[i].deleted) { // This if is probably not needed
+                reportstowrite.push(reports[i]);
+              }
+
+            }
+            this._settings.set_string("reports", this.reportstosettings(reportstowrite));
+          }
+        }
+      });
+      box1.append(up);
+
+      const down = new Gtk.Button({
+        icon_name: "timetracker-down-symbolic",
+      });
+      down.connect("clicked", () => {
+        const selection = listbox.get_selected_row();
+        if (selection) {
+          let number = selection.get_index();
+          if (selection != listbox.get_last_child()) {
+            const row = new Adw.ActionRow({
+              title: selection.get_title(),
+            });
+            listbox.remove(selection);
+            listbox.insert(row, number + 1);
+            listbox.select_row(row);
+            if (number => 0 && number < reports.length - 2) {
+              [reports[number + 1], reports[number + 2]] = [reports[number + 2], reports[number + 1]];
+            }
+            this.updatetotals();
+
+            let reportstowrite = [];
+            for (let i = 1; i < reports.length; i++) {
+              if (!reports[i].deleted) { // This if is probably not needed
+                reportstowrite.push(reports[i]);
+              }
+
+            }
+            this._settings.set_string("reports", this.reportstosettings(reportstowrite));
+          }
+        }
+      });
+      box1.append(down);
+
+      box.append(box1);
+
+      const listbox = new Gtk.ListBox({
+        height_request: 24,
+        margin_bottom: 6,
+      });
+      const style = listbox.get_style_context();
+      style.add_class("boxed-list");
+
+      //let reportbuttons = [];
+      for (let i = 1; i < reports.length; i++) {
+        if (!reports[i].deleted) {
+          const report = reports[i];
+          const row = new Adw.ActionRow();
+          row.title = report.title;
+          listbox.append(row);
+          /*
+          const button = new Gtk.Button({
+            label: report.title,
+          });
+          button.connect("clicked", () => {
+            this.reportdialog(report, (response) => {
+              if (response == "okay") {
+                button.label = report.title;
+              } else if (response == "delete") {
+                button.unparent();
+                button.run_dispose();
+              }
+            });
+          });
+          box.append(button);
+          */
+        }
+      }
+      box.append(listbox);
+
+      dialog.set_extra_child(box);
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  reportdialog(report, tocall = null) {
+    if (report == null) {
+      report = {title: "", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], };
+      reports.push(report);
+    }
+
+    const dialog = new Adw.AlertDialog({
+      heading: "Edit Report",
+      close_response: "cancel",
+    });
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("delete", "Delete");
+    dialog.add_response("okay", "OK");
+    dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
+    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+    const box = new Gtk.Box({
+      orientation: 1,
+    });
+    const entry = new Gtk.Entry({
+      placeholder_text: "Title",
+      margin_bottom: 12,
+    });
+    entry.set_text(report.title);
+    box.append(entry);
+    box.append(this.reportcontrols(report));
+
+    dialog.set_extra_child(box);
+
+    dialog.connect("response", (_, response_id) => {
+      if (response_id === "okay") {
+        report.title = entry.get_text();
+        this.updatetotals();
+      } else if (response_id === "delete") {
+        report.deleted = true;
+        const foundItem = reports.find(item => item.deleted === true);
+        if (foundItem) {
+          reports.splice(reports.indexOf(foundItem), 1);
+        }
+        this.updatetotals();
+      } else if (response_id == "cancel" && report == null) {
+        report = {deleted: true};
+      }
+      let reportstowrite = [];
+      for (let i = 1; i < reports.length; i++) {
+        if (!reports[i].deleted) { // This if is probably not needed
+          reportstowrite.push(reports[i]);
+        }
+      }
+      this._settings.set_string("reports", this.reportstosettings(reportstowrite));
+      if (tocall && typeof tocall === 'function') {
+        tocall(response_id);
+      }
+    });
+
+    dialog.present(this);
+  }
+
+  async reportfiltersdialog(report, tocall = null) {
+    try {
+      const dialog = new Adw.AlertDialog({
+        heading: "Choose Filters",
         close_response: "cancel",
       });
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
-      if (commonname == "No change") {
-        dialog.set_response_appearance("okay", Adw.ResponseAppearance.DESTRUCTIVE);
-      }
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
       const box = new Gtk.Box({
         orientation: 1,
       });
+      const projectlist2 = new Gtk.DropDown({
+        enable_search: true,
+        margin_bottom: 12,
+      });
+      projectlist2.expression = listexpression;
+      const model2 = new Gio.ListStore({ item_type: project });
+      projectlist2.model = model2;
+      model2.append(new project({ value: "(All Projects)" }));
+      for (let i = 0; i < projects.length; i++) {
+        model2.append(new project({ value: projects[i] }));
+      }
+      box.append(projectlist2);
+
+      const sep1 = new Gtk.Separator({
+        margin_bottom: 12,
+      });
+      const sep2 = new Gtk.Separator({
+        margin_bottom: 12,
+      });
+      const sep3 = new Gtk.Separator({
+        margin_bottom: 12,
+      });
+      box.append(sep1);
+
+      if (report.filters.project) {
+        let projectindex = projects.indexOf(report.filters.project);
+        if (projectindex !== -1) {
+          projectlist2.set_selected(projectindex + 1);
+        }
+      }
 
       let billednull = new Gtk.CheckButton({
-        label: commonname,
+        label: "Billed and Not Billed",
       });
       let billedtrue = new Gtk.CheckButton({
         label: "Billed",
@@ -2249,31 +2964,69 @@ export const TimeTrackerWindow = GObject.registerClass({
       let billedfalse = new Gtk.CheckButton({
         label: "Not Billed",
         group: billednull,
+        margin_bottom: 12,
       });
       box.append(billednull);
       box.append(billedtrue);
       box.append(billedfalse);
+      box.append(sep2);
 
-      if (billed) {
+      if (report.filters.billed) {
         billedtrue.set_active(true);
-      } else if (billed == false) {
+      } else if (report.filters.billed == false) {
         billedfalse.set_active(true);
       } else {
         billednull.set_active(true);
       }
 
+      const tagentry = new Gtk.Entry({
+        placeholder_text: "Tag",
+        margin_bottom: 12,
+      })
+      if (report.filters.tag) {
+        tagentry.set_text(report.filters.tag);
+      }
+      const cliententry = new Gtk.Entry({
+        placeholder_text: "Client",
+      })
+      if (report.filters.client) {
+        tagentry.set_text(report.filters.client);
+      }
+      box.append(tagentry);
+      box.append(sep3);
+      box.append(cliententry);
+
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
         if (response_id === "okay") {
+          let newproject = null;
+          const selection = projectlist2.selected_item;
+          const value = selection.value;
+          if (projectlist2.get_selected() > 0) {
+            newproject = value;
+          }
+          report.filters.project = newproject;
+          let newbilled = null;
+          if (billedtrue.get_active()) {
+            newbilled = true;
+          } else if (billedfalse.get_active()) {
+            newbilled = false;
+          }
+          report.filters.billed = newbilled;
+          let newtag = null;
+          if (tagentry.get_text() != "") {
+            newtag = tagentry.get_text();
+          }
+          report.filters.tag = newtag;
+          let newclient = null;
+          if (cliententry.get_text() != "") {
+            newclient = cliententry.get_text();
+          }
+          report.filters.client = newclient;
+
           if (tocall && typeof tocall === 'function') {
-            let newbilled = null;
-            if (billedtrue.get_active()) {
-              newbilled = true;
-            } else if (billedfalse.get_active()) {
-              newbilled = false;
-            }
-            tocall(newbilled);
+            tocall();
           }
         }
       });
@@ -2284,52 +3037,198 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async projectdialog(theproject = null, tocall = null, commonname = "<No Change>") {
+  async reportdatedialog(date = new Date(), tocall = null, start = true) {
     try {
+      let selecteddate = null;
+
       const dialog = new Adw.AlertDialog({
-        heading: "Select Project",
+        heading: "Choose the Date & Time",
         close_response: "cancel",
       });
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
-      if (commonname == "<No Change>") {
-        dialog.set_response_appearance("okay", Adw.ResponseAppearance.DESTRUCTIVE);
-      }
-      const box = new Gtk.Box({
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box0 = new Gtk.Box({
         orientation: 1,
+        hexpand: true,
       });
-      const projectlist2 = new Gtk.DropDown({
-        enable_search: true,
+      const nodate = new Gtk.CheckButton({
+        active: true,
+        label: "No Date",
+        margin_bottom: 12,
       });
-      projectlist2.expression = listexpression;
-      const model2 = new Gio.ListStore({ item_type: project });
-      projectlist2.model = model2;
-      model2.append(new project({ value: commonname }));
-      for (let i = 0; i < projects.length; i++) {
-        model2.append(new project({ value: projects[i] }));
-      }
-      box.append(projectlist2);
+      const relativedate = new Gtk.CheckButton({
+        label: "Relative Date",
+        group: nodate,
+      });
+      const specificdate = new Gtk.CheckButton({
+        label: "Specific Date:",
+        group: nodate,
+      });
 
-      dialog.set_extra_child(box);
+      const frame1 = new Gtk.Frame({
+        margin_bottom: 12,
+      });
+      const box = new Gtk.Box({
+        margin_start: 12,
+        margin_end: 12,
+        margin_top: 12,
+        margin_bottom: 12,
+        orientation: 1,
+        spacing: 6,
+      });
+      frame1.set_child(box);
+      const box1 = new Gtk.Box({
+        spacing: 6,
+      });
+      const box2 = new Gtk.Box({
+        spacing: 6,
+      });
+      box.append(box1);
+      box.append(box2);
+      const entry = new Gtk.Entry({
+        text: "0",
+      });
+      entry.connect("changed", () => {
+        relativedate.set_active(true);
+      });
 
-      if (theproject) {
-        let projectindex = projects.indexOf(theproject);
-        if (projectindex !== -1) {
-          projectlist2.set_selected(projectindex + 1);
+      const intervallabel = new Gtk.Label({
+        label: "today",
+      });
+      const intervallist = new Gtk.StringList();
+      intervallist.splice(0, 0, ["day(s)", "week(s)", "month(s)", "year(s)"]);
+      const intervaldrop = new Gtk.DropDown({
+        model: intervallist,
+      });
+      intervaldrop.connect("notify::selected-item", () => {
+        const selection = intervaldrop.get_selected();
+        if (selection == 0) {
+          intervallabel.label = "today";
+        } else if (selection == 1) {
+          intervallabel.label = "this week";
+        }else if (selection == 2) {
+          intervallabel.label = "this month";
+        }else if (selection == 3) {
+          intervallabel.label = "this year";
         }
+        relativedate.set_active(true);
+      });
+
+      const directionlist = new Gtk.StringList();
+      directionlist.splice(0, 0, ["before", "after"]);
+      const directiondrop = new Gtk.DropDown({
+        model: directionlist,
+      });
+      directiondrop.connect("notify::selected-item", () => {
+        relativedate.set_active(true);
+      });
+      box1.append(entry);
+      box1.append(intervaldrop);
+      box2.append(directiondrop);
+      box2.append(intervallabel);
+
+      const frame2 = new Gtk.Box({
+        hexpand: true,
+      });
+      const datebutton = new Gtk.Button({
+        label: "No Date",
+        halign: 2,
+        hexpand: true,
+      });
+      frame2.append(specificdate);
+      frame2.append(datebutton);
+      datebutton.connect("clicked", () => {
+        let newdate = null;
+        if (!selecteddate) {
+          newdate = new Date();
+          if (start) {
+            newdate.setHours(0,0,0,0);
+          } else {
+            newdate.setHours(23,59,59,999);
+          }
+        } else {
+          newdate = new Date(selecteddate);
+        }
+        this.datedialog(newdate, (date) => {
+          datebutton.set_label(this.datetotext(date));
+          selecteddate = date;
+          if (date != newdate) {
+            specificdate.set_active(true);
+          }
+        }, null);
+      });
+
+      // Set order of top-level widgets
+      box0.append(nodate);
+      box0.append(relativedate);
+      box0.append(frame1);
+      //box0.append(specificdate);
+      box0.append(frame2);
+
+      // Set content of widgets
+      if (!date) {
+        // no date
+      } else if (isNaN(date)) {
+        // relative date
+        relativedate.set_active(true);
+        let a = [];
+        //let add = true;
+        if (date.indexOf("+") > -1) {
+          a = date.split("+");
+          directiondrop.set_selected(1);
+        } else if (date.indexOf("-") > -1) {
+          a = date.split("-");
+          directiondrop.set_selected(0);
+          //add = false;
+        }
+        if (a[0] == "day") {
+          intervaldrop.set_selected(0);
+        } else if (a[0] == "week") {
+          intervaldrop.set_selected(1);
+        } else if (a[0] == "month") {
+          intervaldrop.set_selected(2);
+        } else if (a[0] == "year") {
+          intervaldrop.set_selected(3);
+        }
+        entry.set_text(parseInt(a[1]).toString());
+      } else {
+        selecteddate = date;
+        specificdate.set_active(true);
+        datebutton.set_label(this.datetotext(date));
       }
 
+      dialog.set_extra_child(box0);
       dialog.connect("response", (_, response_id) => {
         if (response_id === "okay") {
-          if (tocall && typeof tocall === 'function') {
-            let newproject = null;
-            const selection = projectlist2.selected_item;
-            const value = selection.value;
-            if (projectlist2.get_selected() > 0) {
-              newproject = value;
+          if (relativedate.get_active()) {
+            if (intervaldrop.get_selected() == 1) {
+              selecteddate = "week";
+            } else if (intervaldrop.get_selected() == 2) {
+              selecteddate = "month";
+            } else if (intervaldrop.get_selected() == 3) {
+              selecteddate = "year";
+            } else {
+              selecteddate = "day";
             }
-            tocall(newproject);
+            if (directiondrop.get_selected() == 1) {
+              selecteddate += "+";
+            } else {
+              selecteddate += "-";
+            }
+            if (!isNaN(entry.get_text())) {
+              selecteddate += entry.get_text();
+            } else {
+              selecteddate += "0";
+            }
+          } else if (nodate.get_active()) {
+            selecteddate = null;
           }
+          if (tocall && typeof tocall === 'function') {
+            tocall(selecteddate);
+          }
+          return selecteddate;
         }
       });
 
@@ -2339,249 +3238,254 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async datedialog(date = new Date(), tocall = null, body = null, allownodate = false, ampm = ampmformat) {
-    if (!date || isNaN(date)) {
-      date = new Date();
-    }
-
-    const dialog = new Adw.AlertDialog({
-      heading: "Choose the Date & Time",
-      close_response: "cancel",
-    });
-
-    if (body) {
-      dialog.body = body;
-    }
-
-    dialog.add_response("cancel", "Cancel");
-    if (allownodate) {
-      dialog.add_response("none", "No Date");
-      dialog.set_response_appearance("none", Adw.ResponseAppearance.DESTRUCTIVE);
-    }
-    dialog.add_response("okay", "OK");
-
-    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
-
-    const box = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
-    const topbox = new Gtk.Box({
-      orientation: 0,
-      spacing: 6,
-    });
-    box.append(topbox);
-    const bottombox = new Gtk.Box({
-      orientation: 1,
-      spacing: 6,
-    });
-    box.append(bottombox);
-    const buttonbox = new Gtk.Box({
-      orientation: 1,
-      spacing: 12,
-      valign: 3,
-    });
-    const datebox = new Gtk.Box({
-      orientation: 0,
-      valign: 3,
-      spacing: 0,
-    });
-    topbox.append(datebox);
-
-    const timebox = new Gtk.Box({
-      orientation: 0,
-      spacing: 0,
-    });
-    const monthlist = new Gtk.DropDown({
-      enable_search: true,
-      width_request: 120
-    });
-    const dayspin = new Gtk.SpinButton({
-      orientation: 1,
-      width_request: 35
-    });
-    const yearspin = new Gtk.SpinButton({
-      orientation: 1,
-      width_request: 60
-    });
-    const hourminuteentry = new Gtk.Entry();
-    const hourminutelabel = new Gtk.Label();
-    const secondentry = new Gtk.Entry();
-    //const secondlabel = new Gtk.Label();
-    const todaybutton = new Gtk.Button();
-    const yesterdaybutton = new Gtk.Button();
-
-    const am = new Gtk.ToggleButton;
-    const pm = new Gtk.ToggleButton;
-    let timestyle = timebox.get_style_context();
-    timestyle.add_class("linked");
-    let datestyle = datebox.get_style_context();
-    datestyle.add_class("linked");
-
-    todaybutton.label = "Today";
-    todaybutton.connect("clicked", () => {
-      let today = new Date();
-      monthlist.set_selected(today.getMonth());
-      dayspin.set_value(today.getDate());
-      yearspin.set_value(today.getFullYear());
-    });
-    yesterdaybutton.label = "Yesterday";
-    yesterdaybutton.connect("clicked", () => {
-      let yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      monthlist.set_selected(yesterday.getMonth());
-      dayspin.set_value(yesterday.getDate());
-      yearspin.set_value(yesterday.getFullYear());
-    });
-
-    // Set the day range before setting the month value
-    dayspin.set_range(1,new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate());
-    const dayinc = dayspin.get_adjustment();
-    dayinc.set_step_increment(1);
-
-    // Set the year range
-    yearspin.set_range(2000,3000);
-    const yearinc = yearspin.get_adjustment();
-    yearinc.set_step_increment(1);
-
-    // Set year value before setting day value
-    yearspin.set_value(date.getFullYear());
-
-    // Set the monthlist contents
-    monthlist.expression = monthexpression;
-    monthlist.model = monthmodel;
-
-    // Set monthlist selection
+  async datedialog(date = new Date(), tocall = null, body = null, allownodate = false) {
     try {
-      monthlist.set_selected(parseInt(date.getMonth()));
-    } catch (error) {
-      console.log("Failed to set month date");
-    }
-
-    // When monthlist selection changed, make number of days in day entry be correct
-    monthlist.connect("notify::selected-item", () => {
-      // is there a better way of doing this?
-      const daysinmonth = new Date(yearspin.get_value(), monthlist.get_selected() + 1, 0).getDate();
-      dayspin.set_range(1,daysinmonth);
-    });
-
-    dayspin.set_value(date.getDate());
-    let inputhour = date.getHours();
-    if (ampm) {
-      if (inputhour >= 13) {
-        inputhour -= 12;
-        pm.set_active(true);
-      } else if (inputhour == 12) {
-        pm.set_active(true);
-      } else if (inputhour == 0) {
-        inputhour = 12;
-        am.set_active(true);
-      } else {
-        am.set_active(true);
+      let ampm = this._settings.get_boolean("ampmformat");
+      if (!date || isNaN(date)) {
+        date = new Date();
       }
-    }
-    let hourString = (inputhour * 100 + date.getMinutes()).toString()
-    if (inputhour < 1) {
-      hourString = "0" + intto2digitstring(date.getMinutes());
-    }
-    hourminuteentry.set_text(hourString);
 
-    /* can't seem to focus the entry or get when it is edited {{{
-    hourminuteentry.connect("notify::key-press-event", () => {
-      secondentry.set_text("00");
-    });
-    */
-    secondentry.set_text(this.intto2digitstring(date.getSeconds()));
-
-    hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
-
-    buttonbox.append(yesterdaybutton);
-    buttonbox.append(todaybutton);
-    datebox.append(monthlist);
-    topbox.append(buttonbox);
-    datebox.append(dayspin);
-    datebox.append(yearspin);
-    timebox.append(hourminuteentry);
-    timebox.append(secondentry);
-    bottombox.append(hourminutelabel);
-    bottombox.append(timebox);
-    if (ampm) {
-      timebox.append(am);
-      timebox.append(pm);
-      am.label = "AM";
-      pm.label = "PM";
-      am.connect("toggled", () => {
-        if (am.get_active()) {
-          pm.set_active(false);
-        } else {
-          pm.set_active(true);
-        }
+      const dialog = new Adw.AlertDialog({
+        heading: "Choose the Date & Time",
+        close_response: "cancel",
       });
-      pm.connect("toggled", () => {
-        if (pm.get_active()) {
-          am.set_active(false);
+
+      if (body) {
+        dialog.body = body;
+      }
+
+      dialog.add_response("cancel", "Cancel");
+      if (allownodate) {
+        dialog.add_response("none", "No Date");
+        dialog.set_response_appearance("none", Adw.ResponseAppearance.DESTRUCTIVE);
+      }
+      dialog.add_response("okay", "OK");
+
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      const topbox = new Gtk.Box({
+        orientation: 0,
+        spacing: 6,
+      });
+      box.append(topbox);
+      const bottombox = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      box.append(bottombox);
+      const buttonbox = new Gtk.Box({
+        orientation: 1,
+        spacing: 12,
+        valign: 3,
+      });
+      const datebox = new Gtk.Box({
+        orientation: 0,
+        valign: 3,
+        spacing: 0,
+      });
+      topbox.append(datebox);
+
+      const timebox = new Gtk.Box({
+        orientation: 0,
+        spacing: 0,
+      });
+      const monthlist = new Gtk.DropDown({
+        enable_search: true,
+        width_request: 120
+      });
+      const dayspin = new Gtk.SpinButton({
+        orientation: 1,
+        width_request: 35
+      });
+      const yearspin = new Gtk.SpinButton({
+        orientation: 1,
+        width_request: 60
+      });
+      const hourminuteentry = new Gtk.Entry();
+      const hourminutelabel = new Gtk.Label();
+      const secondentry = new Gtk.Entry();
+      //const secondlabel = new Gtk.Label();
+      const todaybutton = new Gtk.Button();
+      const yesterdaybutton = new Gtk.Button();
+
+      const am = new Gtk.ToggleButton;
+      const pm = new Gtk.ToggleButton;
+      let timestyle = timebox.get_style_context();
+      timestyle.add_class("linked");
+      let datestyle = datebox.get_style_context();
+      datestyle.add_class("linked");
+
+      todaybutton.label = "Today";
+      todaybutton.connect("clicked", () => {
+        let today = new Date();
+        monthlist.set_selected(today.getMonth());
+        dayspin.set_value(today.getDate());
+        yearspin.set_value(today.getFullYear());
+      });
+      yesterdaybutton.label = "Yesterday";
+      yesterdaybutton.connect("clicked", () => {
+        let yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        monthlist.set_selected(yesterday.getMonth());
+        dayspin.set_value(yesterday.getDate());
+        yearspin.set_value(yesterday.getFullYear());
+      });
+
+      // Set the day range before setting the month value
+      dayspin.set_range(1,new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate());
+      const dayinc = dayspin.get_adjustment();
+      dayinc.set_step_increment(1);
+
+      // Set the year range
+      yearspin.set_range(2000,3000);
+      const yearinc = yearspin.get_adjustment();
+      yearinc.set_step_increment(1);
+
+      // Set year value before setting day value
+      yearspin.set_value(date.getFullYear());
+
+      // Set the monthlist contents
+      monthlist.expression = monthexpression;
+      monthlist.model = monthmodel;
+
+      // Set monthlist selection
+      try {
+        monthlist.set_selected(parseInt(date.getMonth()));
+      } catch (error) {
+        console.log("Failed to set month date");
+      }
+
+      // When monthlist selection changed, make number of days in day entry be correct
+      monthlist.connect("notify::selected-item", () => {
+        // is there a better way of doing this?
+        const daysinmonth = new Date(yearspin.get_value(), monthlist.get_selected() + 1, 0).getDate();
+        dayspin.set_range(1,daysinmonth);
+      });
+
+      dayspin.set_value(date.getDate());
+      let inputhour = date.getHours();
+      if (ampm) {
+        if (inputhour >= 13) {
+          inputhour -= 12;
+          pm.set_active(true);
+        } else if (inputhour == 12) {
+          pm.set_active(true);
+        } else if (inputhour == 0) {
+          inputhour = 12;
+          am.set_active(true);
         } else {
           am.set_active(true);
         }
-      });
-    }
-
-    dialog.set_extra_child(box);
-
-    // Doesn't work {{{
-    dayspin.grab_focus();
-
-    dialog.connect("response", (_, response_id) => {
-      if (response_id === "okay") {
-        let chosendate = new Date();
-        let hourminute = hourminuteentry.get_text();
-        let hour = 0;
-        let minute = 0;
-        if (hourminute.length > 2) {
-          hour = Math.floor(parseInt(hourminute) / 100);
-          minute = parseInt(hourminute) - (hour * 100);
-        } else {
-          hour = parseInt(hourminute);
-        }
-        let second = parseInt(secondentry.get_text());
-        if (isNaN(second)) {
-          second = 0;
-        }
-        chosendate.setDate(dayspin.get_value());
-        chosendate.setMonth(monthlist.get_selected());
-        chosendate.setFullYear(yearspin.get_text());
-        chosendate.setHours(hour);
-        chosendate.setMinutes(minute);
-        chosendate.setSeconds(parseInt(secondentry.get_text()));
-        chosendate.setMilliseconds(0);
-        if (ampm) {
-          if (pm.get_active() && hour > 0 && hour < 12) {
-            chosendate.setHours(hour + 12);
-          } else if (am.get_active() && hour == 12) {
-            chosendate.setHours(0);
-          }
-        }
-        //console.log("Selected date: " + chosendate);
-
-        if (isNaN(chosendate.getTime())) {
-          // If parsing fails, set validated message
-          this.datedialog(date,tocall,"The entry was not a valid date or time.");
-        } else {
-          // If a callback function was given, call that function with the discovered date
-          if (tocall && typeof tocall === 'function') {
-            tocall(chosendate);
-          }
-        }
-        return chosendate;
-      } else if (response_id == "none") {
-        if (tocall && typeof tocall === 'function') {
-          tocall(null);
-        }
-        return null;
       }
-    });
+      let hourString = (inputhour * 100 + date.getMinutes()).toString()
+      if (inputhour < 1) {
+        hourString = "0" + this.intto2digitstring(date.getMinutes());
+      }
+      hourminuteentry.set_text(hourString);
 
-    dialog.present(this);
+      /* can't seem to focus the entry or get when it is edited {{{
+      hourminuteentry.connect("notify::key-press-event", () => {
+        secondentry.set_text("00");
+      });
+      */
+      secondentry.set_text(this.intto2digitstring(date.getSeconds()));
+
+      hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
+
+      buttonbox.append(yesterdaybutton);
+      buttonbox.append(todaybutton);
+      datebox.append(monthlist);
+      topbox.append(buttonbox);
+      datebox.append(dayspin);
+      datebox.append(yearspin);
+      timebox.append(hourminuteentry);
+      timebox.append(secondentry);
+      bottombox.append(hourminutelabel);
+      bottombox.append(timebox);
+      if (ampm) {
+        timebox.append(am);
+        timebox.append(pm);
+        am.label = "AM";
+        pm.label = "PM";
+        am.connect("toggled", () => {
+          if (am.get_active()) {
+            pm.set_active(false);
+          } else {
+            pm.set_active(true);
+          }
+        });
+        pm.connect("toggled", () => {
+          if (pm.get_active()) {
+            am.set_active(false);
+          } else {
+            am.set_active(true);
+          }
+        });
+      }
+
+      dialog.set_extra_child(box);
+
+      // Doesn't work {{{
+      dayspin.grab_focus();
+
+      dialog.connect("response", (_, response_id) => {
+        if (response_id === "okay") {
+          let chosendate = new Date();
+          let hourminute = hourminuteentry.get_text();
+          let hour = 0;
+          let minute = 0;
+          if (hourminute.length > 2) {
+            hour = Math.floor(parseInt(hourminute) / 100);
+            minute = parseInt(hourminute) - (hour * 100);
+          } else {
+            hour = parseInt(hourminute);
+          }
+          let second = parseInt(secondentry.get_text());
+          if (isNaN(second)) {
+            second = 0;
+          }
+          chosendate.setDate(dayspin.get_value());
+          chosendate.setMonth(monthlist.get_selected());
+          chosendate.setFullYear(yearspin.get_text());
+          chosendate.setHours(hour);
+          chosendate.setMinutes(minute);
+          chosendate.setSeconds(parseInt(secondentry.get_text()));
+          chosendate.setMilliseconds(0);
+          if (ampm) {
+            if (pm.get_active() && hour > 0 && hour < 12) {
+              chosendate.setHours(hour + 12);
+            } else if (am.get_active() && hour == 12) {
+              chosendate.setHours(0);
+            }
+          }
+          //console.log("Selected date: " + chosendate);
+
+          if (isNaN(chosendate.getTime())) {
+            // If parsing fails, set validated message
+            this.datedialog(date,tocall,"The entry was not a valid date or time.");
+          } else {
+            // If a callback function was given, call that function with the discovered date
+            if (tocall && typeof tocall === 'function') {
+              tocall(chosendate);
+            }
+          }
+          return chosendate;
+        } else if (response_id == "none") {
+          if (tocall && typeof tocall === 'function') {
+            tocall(null);
+          }
+          return null;
+        }
+      });
+
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   intto2digitstring(int) {
@@ -3360,6 +4264,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async usesystemfolder() {
+    this.stopsynctimer();
     const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
     const directory = Gio.File.new_for_path(filepath);
 
@@ -3377,10 +4282,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       await this.createfile(logpath);
       await this.writelog();
     } else {
-      await this.readfromfile();
+      //await this.readfromfile();
     }
     // Set up sync timer
-    this.setsynctimer();
+    //        console.log(8);
+    //this.setsynctimer();
   }
 
   async runbackups(deleteold = true) {
@@ -3472,6 +4378,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  /*
   async preferencesdialog() {
     try {
       const dialog = new Adw.AlertDialog({
@@ -3499,10 +4406,10 @@ export const TimeTrackerWindow = GObject.registerClass({
       // Set the weeklist contents
       weeklist.expression = weekexpression;
       weeklist.model = weekmodel;
-      weeklist.set_selected(firstdayofweek);
+      weeklist.set_selected(this.firstdayofweek);
       weeklist.connect("notify::selected-item", () => {
-        firstdayofweek = weeklist.get_selected();
-        this._settings.set_int("firstdayofweek", firstdayofweek);
+        this.firstdayofweek = weeklist.get_selected();
+        this._settings.set_int("firstdayofweek", this.firstdayofweek);
         this.updatetotals();
       });
 
@@ -3568,4 +4475,5 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
+  */
 });

@@ -4,3 +4,5 @@ data/com.lynnmichaelmartin.TimeTracker.gschema.xml
 src/main.js
 src/window.js
 src/window.ui
+src/preferences.js
+src/preferences.ui

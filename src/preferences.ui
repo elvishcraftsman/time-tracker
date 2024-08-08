@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="Adw" version="1.0"/>
+  <template class="PreferencesWindow" parent="AdwApplicationWindow">
+    <property name="title" translatable="true">Preferences</property>
+    <property name="width-request">600</property>
+    <property name="height-request">450</property>
+    <property name="content">
+    <object class="GtkBox">
+      <property name="orientation">1</property>
+        <child>
+          <object class="AdwHeaderBar" id="header_bar">
+          </object>
+        </child>
+      <child>
+      <object class="GtkScrolledWindow">
+        <property name="vexpand">true</property>
+    <child>
+      <object class="GtkBox">
+        <property name="margin-start">24</property>
+        <property name="margin-end">24</property>
+        <property name="margin-top">24</property>
+        <property name="margin-bottom">24</property>
+        <property name="orientation">1</property>
+        <child>
+          <object class="AdwPreferencesGroup">
+            <style>
+              <class name="boxed-list"/>
+            </style>
+            <child>
+              <object class="AdwComboRow" id="firstday">
+                <property name="title" translatable="true">First Day of Week</property>
+                <property name="model">
+                  <object class="GtkStringList">
+                    <items>
+                      <item>Sunday</item>
+                      <item>Monday</item>
+                      <item>Tuesday</item>
+                      <item>Wednesday</item>
+                      <item>Thursday</item>
+                      <item>Friday</item>
+                      <item>Saturday</item>
+                    </items>
+                  </object>
+                </property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwSwitchRow" id="importprojects">
+                <property name="title" translatable="true">Import Projects from Log</property>
+                <property name="subtitle" translatable="true">When opening a new log file, add its project names to the list of available projects.</property>
+                <property name="active">true</property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwSwitchRow" id="ampm">
+                <property name="title" translatable="true">12-Hour Format</property>
+                <property name="subtitle" translatable="true">Should Time Tracker use 12-hour time format (AM/PM), instead of 24-hour time format?</property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwSwitchRow" id="templogs">
+                <property name="title" translatable="true">Automatically Use Temporary Logs</property>
+                <property name="subtitle" translatable="true">Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+      </object>
+    </child>
+  </object>
+      </child>
+      </object>
+    </property>
+  </template>
+</interface>
