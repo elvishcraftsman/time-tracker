@@ -48,16 +48,6 @@ let nochange = false;
 let sync_interval = 1000;
 let tick = 0;
 let nexttick = 0;
-/*
-let customfilter = -1;
-let customstart = null;
-let customend = null;
-let customproject = null;
-let custombilled = null;
-let customtag = null;
-let customclient = null;
-let customgroup = 0;
-*/
 let sync_operation = 0; // Is a current operation trying to sync?
 let sync_changes = []; // Changes to be synced
 // type, project, start, stop, ID, oldproject, oldstart, oldstop, undone
@@ -69,10 +59,9 @@ let sync_fullstop = false;
 let sync_templog = false;
 let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
-// 'title=`Today`,start=day+0,end=day+0,filters=[project=,billed=,tag=,client=],groupby=["project"]'
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.0.0";
+let version = "2.0.1";
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -176,12 +165,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._settings.bind(
         "window-maximized", this, "maximized", Gio.SettingsBindFlags.DEFAULT);
 
-    // Version
+    // Get the version history gsetting and call the versioning() function in case something should be done depending on the former version
     this.versioning(this._settings.get_string("version"));
 
-    // If we need to reset the filters gsetting to default
-    //this._settings.set_string("filters", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed');
+    // If we need to reset the reports gsetting to default
+    //this._settings.set_string("reports", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed');
 
+    // Read reports setting from gsettings
     let reportsetting = this._settings.get_string("reports");
     if (reportsetting.indexOf("`") > -1) {
       reports = reports.concat(this.settingstoreports(reportsetting));
@@ -226,6 +216,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     importAction.connect('activate', () => this.importlog());
     this.add_action(importAction);
 
+    // Connecting the "Use System Folder" button with the proper function
     const systemAction = new Gio.SimpleAction({name: 'system'});
     systemAction.connect('activate', () => {
       this.usesystemfolder();
@@ -243,6 +234,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     redoAction.connect('activate', () => this.redo());
     this.add_action(redoAction);
 
+    // Connecting the "Edit Preset Reports" button with the proper function
     const reportsAction = new Gio.SimpleAction({name: 'reports'});
     reportsAction.connect('activate', () => this.reportsdialog());
     this.add_action(reportsAction);
@@ -262,6 +254,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     });
 
+    // Connecting changes in the description and tag text entry with edits of the entry
     this._metaentry.connect("changed", () => {
       if (!nochange && logging) {
         if (this._metaentry.get_text() != "") {
@@ -364,22 +357,26 @@ export const TimeTrackerWindow = GObject.registerClass({
     // All done constructing the window!
   }
 
-  versioning (versions) {
+  // Do any code that should happen if this is the first time opening Time Tracker in the current version
+  versioning(versions) {
     try {
       console.log("Welcome to Time Tracker " + version + ".");
       console.log("Version history for this installation of Time Tracker: " + versions + ".");
       let versionhistory = versions.split(">");
       let lastversion = versionhistory[versionhistory.length - 1];
+
+      // If this is the first time using this version
       if (lastversion != version) {
+        // Set the current version as the latest version
         this._settings.set_string("version", versions + ">" + version);
-        // This code executes
+        // Now, execute any further code that we need to
       }
     } catch (e) {
       console.log(e);
     }
   }
 
-  // These need to be duplicated in preferences.js or maybe in main.js
+  // Read the reports gsetting into the reports[] array
   settingstoreports(setting) {
     let outputArray = [];
     let reportsArray = setting.split("`/~/`");
@@ -429,6 +426,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     return outputArray;
   }
 
+  // Make the reports[] array able to be written out to a string gsetting
   reportstosettings(reportsArray) {
     let output = "";
     for (let i = 0; i < reportsArray.length; i++) {
@@ -466,23 +464,19 @@ export const TimeTrackerWindow = GObject.registerClass({
     return output;
   }
 
+  // Undo the last user action
   async undo() {
-    //console.log(sync_changes);
     try {
       // Find last undefined or false .undone in sync_changes
       if (sync_changes.length > 0) {
         for (let i = sync_changes.length - 1; i > -1; i--) {
-          //console.log(sync_changes[i].undone);
           if (!sync_changes[i].undone) {
             console.log("Undoing");
             let change = sync_changes[i];
-            //console.log(change);
             // Undo that item
             if (change.change == "delete" || change.change == "edit") {
-              //console.log("editing");
               this.editentrybyID(change.ID, change.oldproject, change.oldstart, change.oldend, change.oldbilled, change.oldmeta);
             } else {
-              //console.log("deleting");
               // Change was an addition
               this.removeentrybyID(change.ID);
             }
@@ -501,6 +495,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // Redo the last user action
   async redo() {
     try {
       // Find .undone = true item immediately following last undefined or false .undone in sync_changes
@@ -1137,28 +1132,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       box2.append(endlabel);
 
       const startb = new Gtk.Button();
-      startb.connect("clicked", () => {
-        this.datedialog(startDate, (date) => {
-          startDate = date;
-          startb.label = this.datetotext(date);
-        });
-      });
       box1.append(startb);
 
       const endb = new Gtk.Button();
-      endb.connect("clicked", () => {
-        if (endDate != null) {
-          this.datedialog(endDate, (date) => {
-            endDate = date;
-            endb.label = this.datetotext(date);
-          });
-        } else {
-          this.datedialog(new Date(), (date) => {
-            endDate = date;
-            endb.label = this.datetotext(date);
-          });
-        }
-      });
       box2.append(endb);
 
       if (number != -1) {
@@ -1180,6 +1156,66 @@ export const TimeTrackerWindow = GObject.registerClass({
         startb.label = this.datetotext(now);
         endb.label = this.datetotext(now);
       }
+
+      const durationlabel = new Gtk.Label({
+        label: "Duration",
+      });
+      box.append(durationlabel);
+
+      const durationb = new Gtk.Button();
+      if (endDate != null) {
+        durationb.label = this.calcTimeDifference(startDate, endDate);
+      } else {
+        durationb.label = "Still Logging";
+      }
+      box.append(durationb);
+
+      startb.connect("clicked", () => {
+        this.datedialog(startDate, (date) => {
+          startDate = date;
+          startb.label = this.datetotext(date);
+          if (endDate != null) {
+            durationb.label = this.calcTimeDifference(startDate, endDate);
+          } else {
+            durationb.label = "Still Logging";
+          }
+        });
+      });
+      endb.connect("clicked", () => {
+        if (endDate != null) {
+          this.datedialog(endDate, (date) => {
+            endDate = date;
+            endb.label = this.datetotext(date);
+            if (endDate != null) {
+              durationb.label = this.calcTimeDifference(startDate, endDate);
+            } else {
+              durationb.label = "Still Logging";
+            }
+          });
+        } else {
+          this.datedialog(new Date(), (date) => {
+            endDate = date;
+            endb.label = this.datetotext(date);
+            if (endDate != null) {
+              durationb.label = this.calcTimeDifference(startDate, endDate);
+            } else {
+              durationb.label = "Still Logging";
+            }
+          });
+        }
+      });
+      durationb.connect("clicked", () => {
+        // Need to create duration dialog !!!!
+        this.durationdialog(startDate, endDate, (date) => {
+          endDate = date;
+          endb.label = this.datetotext(date);
+          if (endDate != null) {
+            durationb.label = this.calcTimeDifference(startDate, endDate);
+          } else {
+            durationb.label = "Still Logging";
+          }
+        });
+      });
 
       const billedb = new Gtk.CheckButton({
         active: false,
@@ -3229,6 +3265,107 @@ export const TimeTrackerWindow = GObject.registerClass({
             tocall(selecteddate);
           }
           return selecteddate;
+        }
+      });
+
+      dialog.present(this);
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  // Allows choosing an ending date by choosing a duration
+  async durationdialog(startDate, endDate, tocall = null) {
+    try {
+      let duration = this.calcTimeDifference(startDate, endDate, false);
+
+      const dialog = new Adw.AlertDialog({
+        heading: "Choose the Date & Time",
+        close_response: "cancel",
+      });
+
+      dialog.add_response("cancel", "Cancel");
+      dialog.add_response("okay", "OK");
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      const timebox = new Gtk.Box({
+        orientation: 0,
+        spacing: 0,
+      });
+      const bottombox = new Gtk.Box({
+        orientation: 1,
+        spacing: 6,
+      });
+      box.append(bottombox);
+
+      const hourminuteentry = new Gtk.Entry();
+      const hourminutelabel = new Gtk.Label();
+      const secondentry = new Gtk.Entry();
+
+      let inputhour = Math.floor(duration / 3600);
+      let inputminutes = Math.floor((duration - (inputhour * 3600)) / 60);
+      let inputseconds = duration - (inputhour * 3600) - (inputminutes * 60);
+
+      let hourString = ((inputhour * 100) + inputminutes).toString();
+      if (inputhour < 1) {
+        hourString = "0" + this.intto2digitstring(inputminutes);
+      }
+      hourminuteentry.set_text(hourString);
+
+      secondentry.set_text(this.intto2digitstring(inputseconds));
+
+      hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
+
+      timebox.append(hourminuteentry);
+      timebox.append(secondentry);
+      bottombox.append(hourminutelabel);
+      bottombox.append(timebox);
+
+
+      dialog.set_extra_child(box);
+
+      dialog.connect("response", (_, response_id) => {
+        if (response_id === "okay") {
+          let chosendate = new Date(startDate);
+
+          let hourminute = hourminuteentry.get_text();
+          let secondtext = secondentry.get_text();
+          if (hourminute != "" && secondtext != "") {
+            let hour = 0;
+            let minute = 0;
+            if (hourminute.length > 2) {
+              hour = Math.floor(parseInt(hourminute) / 100);
+              minute = parseInt(hourminute) - (hour * 100);
+            } else {
+              hour = parseInt(hourminute);
+            }
+            let second = parseInt(secondtext);
+            if (isNaN(second)) {
+              second = 0;
+            }
+            let seconds = second + (minute * 60) + (hour * 3600);
+            if (isNaN(seconds)) {
+              seconds = 0;
+            }
+            chosendate.setSeconds(chosendate.getSeconds() + seconds);
+          } else {
+            chosendate = null;
+          }
+
+          // If a callback function was given, call that function with the discovered date
+          if (tocall && typeof tocall === 'function') {
+            tocall(chosendate);
+          }
+          return chosendate;
+        } else if (response_id == "none") {
+          if (tocall && typeof tocall === 'function') {
+            tocall(null);
+          }
+          return null;
         }
       });
 
