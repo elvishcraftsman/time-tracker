@@ -28,7 +28,7 @@ const listexpression = Gtk.PropertyExpression.new(project2, null, "value");
 export const PreferencesWindow = GObject.registerClass({
   GTypeName: 'PreferencesWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/preferences.ui',
-  InternalChildren: ['firstday', 'importprojects', 'ampm', 'templogs'],
+  InternalChildren: ['firstday', 'importprojects', 'ampm', 'templogs', 'resetproject', 'resetdescription'],
 }, class PreferencesWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -44,5 +44,7 @@ export const PreferencesWindow = GObject.registerClass({
     this._settings.bind("addprojectsfromlog", this._importprojects, "active", Gio.SettingsBindFlags.DEFAULT);
     this._settings.bind("ampmformat", this._ampm, "active", Gio.SettingsBindFlags.DEFAULT);
     this._settings.bind("autotemplog", this._templogs, "active", Gio.SettingsBindFlags.DEFAULT);
+    this._settings.bind("resetproject", this._resetproject, "active", Gio.SettingsBindFlags.DEFAULT);
+    this._settings.bind("resetdescription", this._resetdescription, "active", Gio.SettingsBindFlags.DEFAULT);
   }
 });

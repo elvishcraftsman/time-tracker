@@ -40,5 +40,11 @@
     <key name="reports" type="s">
       <default>'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed'</default>
     </key>
+    <key name="resetproject" type="b">
+      <default>true</default>
+    </key>
+    <key name="resetdescription" type="b">
+      <default>true</default>
+    </key>
 	</schema>
 </schemalist>

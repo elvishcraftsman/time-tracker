@@ -65,6 +65,18 @@
                 <property name="subtitle" translatable="true">Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?</property>
               </object>
             </child>
+            <child>
+              <object class="AdwSwitchRow" id="resetproject">
+                <property name="title" translatable="true">Reset Project When Stopping Timer</property>
+                <property name="subtitle" translatable="true">Should the selected project reset to "(no project)" when the timer is stopped?</property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwSwitchRow" id="resetdescription">
+                <property name="title" translatable="true">Reset Description When Stopping Timer</property>
+                <property name="subtitle" translatable="true">Should the entry description reset to empty when the timer is stopped?</property>
+              </object>
+            </child>
           </object>
         </child>
 

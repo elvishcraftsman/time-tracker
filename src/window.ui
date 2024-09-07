@@ -235,11 +235,11 @@
     </section>
     <section>
       <item>
-        <attribute name="label" translatable="yes">_Edit Projects</attribute>
+        <attribute name="label" translatable="yes">_Customize Projects</attribute>
         <attribute name="action">win.projects</attribute>
       </item>
       <item>
-        <attribute name="label" translatable="yes">_Edit Preset Reports</attribute>
+        <attribute name="label" translatable="yes">_Customize Preset Reports</attribute>
         <attribute name="action">win.reports</attribute>
       </item>
       <item>

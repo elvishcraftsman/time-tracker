@@ -56,12 +56,13 @@ let sync_firsttime = true;
 let sync_templogpath = "";
 let sync_autotemplog = false;
 let sync_fullstop = false;
-let sync_templog = false;
+let filelost = false;
 let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
 let version = "2.0.1";
+let dialogsopen = 0;
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -346,10 +347,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (file.query_exists(null)) {
         this.readfromfile_sync();
       } else {
+        filelost = true;
         if (sync_autotemplog) {
           this.settempfile();
         } else {
-          this.filenotfounddialog(logpath);
+          this.newfilenotfounddialog(logpath);
         }
       }
     }
@@ -468,7 +470,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async undo() {
     try {
       // Find last undefined or false .undone in sync_changes
-      if (sync_changes.length > 0) {
+      if (dialogsopen < 1 && sync_changes.length > 0) {
         for (let i = sync_changes.length - 1; i > -1; i--) {
           if (!sync_changes[i].undone) {
             console.log("Undoing");
@@ -499,7 +501,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async redo() {
     try {
       // Find .undone = true item immediately following last undefined or false .undone in sync_changes
-      if (sync_changes.length > 0) {
+      if (dialogsopen < 1 && sync_changes.length > 0) {
         for (let i = sync_changes.length - 1; i > -1; i--) {
           if ((!sync_changes[i].undone && i < sync_changes.length - 1) || (sync_changes[i].undone && i == 0)) {
             console.log("Redoing");
@@ -642,7 +644,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   async savedialog() {
     try {
-      sync_templog = false;
+      filelost = false;
       if (entries.length > 0) {
         const dialog = new Adw.AlertDialog({
           heading: "Save or New?",
@@ -653,6 +655,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         dialog.add_response("new", "Start Over");
         dialog.add_response("save", "Save My Data");
         dialog.connect("response", async (_, response_id) => {
+          dialogsopen -= 1;
           try {
             const file = Gio.File.new_for_path(logpath);
             if (response_id === "new") {
@@ -679,6 +682,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         });
         dialog.present(this);
+        dialogsopen += 1;
       } else {
         await this.createfile(logpath);
         await this.writelog();
@@ -830,7 +834,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             sync_firsttime = true;
             // Empty sync_extracolumns
             sync_extracolumns = [];
-            sync_templog = false;
+            filelost = false;
             await this.readfromfile();
             // Start sync timer
             this.setsynctimer();
@@ -912,9 +916,9 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // If the file exists
     if (file.query_exists(null)) {
-      if (filepath != logpath || !sync_templog) {
+      if (filepath != logpath || !filelost) {
         this.writetofile(filepath, entriesString, notify);
-      } else if (filepath == logpath && sync_templog) {
+      } else if (filepath == logpath && filelost) {
         // Now that the log is found again
         await this.prodigal();
       }
@@ -1229,6 +1233,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           let validated = "";
 
@@ -1278,6 +1283,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -1313,6 +1319,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           let newprojects = buffer.get_text(
             buffer.get_start_iter(),
@@ -1348,6 +1355,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -1579,20 +1587,24 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // When the timer needs to be stopped, stop it
   async stopTimer() {
-    logging = false;
-    clearInterval(timer);
-    currentTimer = null;
-    this._startbutton.label = "Start";
-    let style = this._startbutton.get_style_context();
-    if (style.has_class("destructive-action")) {
-      style.remove_class("destructive-action");
-    }
-    style.add_class("suggested-action");
-    this.setTimerText();
-
     try {
-      this._projectlist.set_selected(0); // Reset project to (no project)
-      this._metaentry.set_text("");
+      logging = false;
+      clearInterval(timer);
+      currentTimer = null;
+      this._startbutton.label = "Start";
+      let style = this._startbutton.get_style_context();
+      if (style.has_class("destructive-action")) {
+        style.remove_class("destructive-action");
+      }
+      style.add_class("suggested-action");
+      this.setTimerText();
+
+      if (this._settings.get_boolean("resetproject")) {
+        this._projectlist.set_selected(0); // Reset project to (no project)
+      }
+      if (this._settings.get_boolean("resetdescription")) {
+        this._metaentry.set_text("");
+      }
     } catch (error) {
       console.log(error);
     }
@@ -2537,6 +2549,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id == "okay") {
           let newproject = null;
           let newbilled = null;
@@ -2558,6 +2571,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -2695,6 +2709,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           report.groupby = [];
           for (let i = 0; i < 4; i++) {
@@ -2711,6 +2726,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -2882,7 +2898,13 @@ export const TimeTrackerWindow = GObject.registerClass({
       box.append(listbox);
 
       dialog.set_extra_child(box);
+
+      dialog.connect("response", (_, __) => {
+        dialogsopen -= 1;
+      });
+
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -2918,6 +2940,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     dialog.set_extra_child(box);
 
     dialog.connect("response", (_, response_id) => {
+      dialogsopen -= 1;
       if (response_id === "okay") {
         report.title = entry.get_text();
         this.updatetotals();
@@ -2944,6 +2967,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
 
     dialog.present(this);
+    dialogsopen += 1;
   }
 
   async reportfiltersdialog(report, tocall = null) {
@@ -3026,7 +3050,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         placeholder_text: "Client",
       })
       if (report.filters.client) {
-        tagentry.set_text(report.filters.client);
+        cliententry.set_text(report.filters.client);
       }
       box.append(tagentry);
       box.append(sep3);
@@ -3035,6 +3059,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           let newproject = null;
           const selection = projectlist2.selected_item;
@@ -3068,6 +3093,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -3237,6 +3263,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       dialog.set_extra_child(box0);
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           if (relativedate.get_active()) {
             if (intervaldrop.get_selected() == 1) {
@@ -3269,6 +3296,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -3329,6 +3357,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           let chosendate = new Date(startDate);
 
@@ -3370,6 +3399,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -3570,6 +3600,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dayspin.grab_focus();
 
       dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
         if (response_id === "okay") {
           let chosendate = new Date();
           let hourminute = hourminuteentry.get_text();
@@ -3620,6 +3651,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
 
       dialog.present(this);
+      dialogsopen += 1;
     } catch (e) {
       console.log(e);
     }
@@ -4209,7 +4241,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // If the file exists
     if (file.query_exists(null)) {
-      if (thepath != logpath || !sync_templog) {
+      if (thepath != logpath || !filelost) {
 
         let contentsBytes;
         try {
@@ -4233,7 +4265,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         let csv = await this.readcsv(contentsText);
         this.parsecsv(csv, merge);
 
-      } else if (thepath == logpath && sync_templog) {
+      } else if (thepath == logpath && filelost) {
         // Now that the log is found again
         this.prodigal();
       }
@@ -4245,14 +4277,14 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   async lostlog(text = "") {
     try {
-      if (!sync_templog) {
+      if (!filelost) {
+        filelost = true;
         console.log("Cannot find file " + logpath);
-        sync_templog = true;
         this.stopsynctimer();
         if (sync_autotemplog) {
           await this.settempfile(text, true);
         } else {
-          await this.filenotfounddialog(logpath, text, true);
+          await this.newfilenotfounddialog(logpath, text, true);
         }
       }
       if (text != "") {
@@ -4265,10 +4297,11 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async prodigal() {
-    // Create a backup of the temporary log !!!
+    // Create a backup of the temporary log
     // "backup_2024-01-23-145243523.csv"
     console.log("Log has been found again!");
-    sync_templog = false;
+    this._toast_overlay.add_toast(Adw.Toast.new(`Log has been found again. Merging temporary and original.`));
+    filelost = false;
     if (this.filenotfounddialog) {
       this.filenotfounddialog.close();
     }
@@ -4292,7 +4325,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     await file.delete_async(GLib.PRIORITY_DEFAULT, null);
   }
 
-  async filenotfounddialog(thepath, text = "", filehasbeenopened = false) {
+  async newfilenotfounddialog(thepath, text = "", filehasbeenopened = false) {
     this.filenotfounddialog = new Adw.AlertDialog({
       heading: "Can't Find Log File",
       close_response: "cancel",
@@ -4310,6 +4343,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     this.filenotfounddialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
 
     this.filenotfounddialog.connect("response", async (_, response_id) => {
+      dialogsopen -= 1;
       if (response_id === "cancel") {
         this.close();
       } else if (response_id === "option2") {
@@ -4321,13 +4355,14 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
 
     this.filenotfounddialog.present(this);
+    dialogsopen += 1;
     this.filecheck = setInterval(() => {
       const file = Gio.File.new_for_path(logpath);
       // If the file exists
       const fileexists = file.query_exists(null);
       if (fileexists) {
         clearInterval(this.filecheck);
-        sync_templog = false;
+        filelost = false;
         this.filenotfounddialog.unparent();
         this.filenotfounddialog.run_dispose();
         this.setsynctimer();
@@ -4385,6 +4420,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
 
     dialog.connect("response", async (_, response_id) => {
+      dialogsopen -= 1;
       if (response_id === "cancel") {
         this.close();
       } else if (response_id === "option2") {
@@ -4398,6 +4434,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
 
     dialog.present(this);
+    dialogsopen += 1;
   }
 
   async usesystemfolder() {
