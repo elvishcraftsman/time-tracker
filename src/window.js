@@ -61,7 +61,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.0.1";
+let version = "2.0.2";
 let dialogsopen = 0;
 
 // Creating the "project" class for displaying in the projectlist item
@@ -568,6 +568,9 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         // Run auto backup
         this.runbackups();
+
+        // Redo reports
+        this.updatetotals();
       }
     } catch (_) {
       // Backups failed
@@ -1673,8 +1676,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     return response;
   }
 
-  // Update the total quantities for today, this week, and last week
-  // Not very well written; should be updated. {{{
+  // Update the reports
   async updatetotals() {
     try {
       /*
