@@ -363,7 +363,6 @@ export const TimeTrackerWindow = GObject.registerClass({
   versioning(versions) {
     try {
       console.log("Welcome to Time Tracker " + version + ".");
-      console.log("Version history for this installation of Time Tracker: " + versions + ".");
       let versionhistory = versions.split(">");
       let lastversion = versionhistory[versionhistory.length - 1];
 
@@ -373,6 +372,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         this._settings.set_string("version", versions + ">" + version);
         // Now, execute any further code that we need to
       }
+      console.log("Version history for this installation of Time Tracker: " + versions + ".");
     } catch (e) {
       console.log(e);
     }
@@ -615,25 +615,20 @@ export const TimeTrackerWindow = GObject.registerClass({
         const file = self.save_finish(result);
 
         if (file) {
-          if (logpath.includes("file:///run/user/")) {
-            //nopermissions = true;
-            const errormessage = "You have not given Time Tracker the permission to read/write files in the home directory. Time Tracker cannot run without these permissions. You may want to configure this with FlatSeal.";
-            console.log(errormessage);
-            this.alert(errormessage);
-          } else {
-            this.stopsynctimer()
-            logpath = file.get_path();
 
-            // Default to CSV suffix if none chosen
-            const basename = file.get_basename();
-            if (basename.split(".").length < 2) {
-              logpath += ".csv";
-            }
+          this.stopsynctimer()
+          logpath = file.get_path();
 
-            this._settings.set_string("log", logpath);
-
-            this.savedialog();
+          // Default to CSV suffix if none chosen
+          const basename = file.get_basename();
+          if (basename.split(".").length < 2) {
+            logpath += ".csv";
           }
+
+          this._settings.set_string("log", logpath);
+
+          this.savedialog();
+
         }
       } catch(_) {
         // user closed the dialog without selecting any file
@@ -751,15 +746,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         const file = self.open_finish(result);
 
         if (file) {
-          if (logpath.includes("file:///run/user/")) {
-            const errormessage = "You have not given Time Tracker the permission to read/write files in the home directory. Time Tracker cannot run without these permissions. You may want to configure this with FlatSeal.";
-            console.log(errormessage);
-            this.alert(errormessage);
-          } else {
-            // Define a dialog that asks whether to keep conflicting entries as they are in current file, or to make changes based on imported file !!!
-
-            this.mergelogs(logpath, file.get_path());
-          }
+          this.mergelogs(logpath, file.get_path());
         }
       } catch(_) {
          // user closed the dialog without selecting any file
@@ -826,23 +813,19 @@ export const TimeTrackerWindow = GObject.registerClass({
         const file = self.open_finish(result);
 
         if (file) {
-          if (logpath.includes("file:///run/user/")) {
-            const errormessage = "You have not given Time Tracker the permission to read/write files in the home directory. Time Tracker cannot run without these permissions. You may want to configure this with FlatSeal.";
-            console.log(errormessage);
-            this.alert(errormessage);
-          } else {
-            this.stopsynctimer()
-            logpath = file.get_path();
-            // Make sure it resets everything when reading the new file
-            sync_firsttime = true;
-            // Empty sync_extracolumns
-            sync_extracolumns = [];
-            filelost = false;
-            await this.readfromfile();
-            // Start sync timer
-            this.setsynctimer();
-            this._settings.set_string("log", logpath);
-          }
+
+          this.stopsynctimer()
+          logpath = file.get_path();
+          // Make sure it resets everything when reading the new file
+          sync_firsttime = true;
+          // Empty sync_extracolumns
+          sync_extracolumns = [];
+          filelost = false;
+          await this.readfromfile();
+          // Start sync timer
+          this.setsynctimer();
+          this._settings.set_string("log", logpath);
+
         }
       } catch(_) {
          // user closed the dialog without selecting any file
@@ -855,79 +838,101 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Convert the log array into CSV format
-  async writelog(filepath = logpath, notify = true) {
-    let entriesString = "Project,Start Time,End Time,Description,ID,Duration (Readable),Duration (Seconds),Billed";
-
-    if (sync_extracolumns.length > 0) {
-      for (let i = 0; i < sync_extracolumns.length; i++) {
-        entriesString += "," + this.addquotes(sync_extracolumns[i]);
-      }
-    }
-
-    for (let i = 0; i < entries.length; i++) {
-      let project = "";
-      let start = "";
-      let end = "";
-      let meta = "";
-      let duration = "";
-      let seconds = "";
-      let ID = 0;
-      let billed = false;
-      try {
-        let startDate = entries[i].start;
-        start = startDate.toString();
-        let endDate = entries[i].end;
-        if (endDate) {
-          end = endDate.toString();
-          duration = this.calcTimeDifference(startDate, endDate, true).toString();
-          seconds = this.calcTimeDifference(startDate, endDate, false).toString();
-        } else {
-          end = "";
-        }
-        ID = entries[i].ID;
-        project = this.addquotes(entries[i].project);
-        if (entries[i].billed == true) {
-          billed = true;
-        }
-        if (entries[i].meta) {
-          meta = entries[i].meta;
-        }
-      } catch (e) {
-        console.log(e);
-      }
-      entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+  async writelog(filepath = logpath, filteredentries = null, notify = true) {
+    try {
+      let entriesString = "Project,Start Time,End Time,Description,ID,Duration (Readable),Duration (Seconds),Billed";
 
       if (sync_extracolumns.length > 0) {
-        for (let j = 0; j < sync_extracolumns.length; j++) {
-          entriesString += ",";
-          if (entries[i][sync_extracolumns[j]]) {
-            entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
+        for (let i = 0; i < sync_extracolumns.length; i++) {
+          entriesString += "," + this.addquotes(sync_extracolumns[i]);
+        }
+      }
+
+      for (let i = 0; i < entries.length; i++) {
+        let project = "";
+        let start = "";
+        let end = "";
+        let meta = "";
+        let duration = "";
+        let seconds = "";
+        let ID = 0;
+        let billed = false;
+        try {
+          let startDate = entries[i].start;
+          start = startDate.toString();
+          let endDate = entries[i].end;
+          if (endDate) {
+            end = endDate.toString();
+            duration = this.calcTimeDifference(startDate, endDate, true).toString();
+            seconds = this.calcTimeDifference(startDate, endDate, false).toString();
+          } else {
+            end = "";
+          }
+          ID = entries[i].ID;
+          project = this.addquotes(entries[i].project);
+          if (entries[i].billed == true) {
+            billed = true;
+          }
+          if (entries[i].meta) {
+            meta = entries[i].meta;
+          }
+        } catch (e) {
+          console.log(e);
+        }
+
+        if (filteredentries == null) {
+          entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+
+          if (sync_extracolumns.length > 0) {
+            for (let j = 0; j < sync_extracolumns.length; j++) {
+              entriesString += ",";
+              if (entries[i][sync_extracolumns[j]]) {
+                entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
+              }
+            }
+          }
+        } else {
+          const foundItem = filteredentries.find(item => item.ID === ID);
+          if (foundItem) {
+            // Same code as above, redundant for speed purposes
+            entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+
+            if (sync_extracolumns.length > 0) {
+              for (let j = 0; j < sync_extracolumns.length; j++) {
+                entriesString += ",";
+                if (entries[i][sync_extracolumns[j]]) {
+                  entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
+                }
+              }
+            }
           }
         }
       }
-    }
 
-    if (sync_extraentries.length > 0) {
-      for (let i = 0; i < sync_extraentries.length; i++) {
-        let ID = sync_extraentries[i].ID;
-        let deletedate = sync_extraentries[i].end;
-        entriesString += '\n,deleted,' + deletedate.toString() +',,' + ID.toString() + ",,,";
+      if (sync_extraentries.length > 0 && filteredentries == null) {
+        for (let i = 0; i < sync_extraentries.length; i++) {
+          let ID = sync_extraentries[i].ID;
+          let deletedate = sync_extraentries[i].end;
+          entriesString += '\n,deleted,' + deletedate.toString() +',,' + ID.toString() + ",,,";
+        }
       }
-    }
 
-    const file = Gio.File.new_for_path(filepath);
+      const file = Gio.File.new_for_path(filepath);
 
-    // If the file exists
-    if (file.query_exists(null)) {
-      if (filepath != logpath || !filelost) {
-        this.writetofile(filepath, entriesString, notify);
-      } else if (filepath == logpath && filelost) {
-        // Now that the log is found again
-        await this.prodigal();
+      // If the file exists
+      if (file.query_exists(null)) {
+        if (filepath != logpath || !filelost) {
+          this.writetofile(filepath, entriesString, notify);
+        } else if (filepath == logpath && filelost) {
+          // Now that the log is found again
+          await this.prodigal();
+        }
+      } else {
+        // The file does not exist
+        await this.lostlog(entriesString);
       }
-    } else {
-      // The file does not exist
-      await this.lostlog(entriesString);
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -939,13 +944,10 @@ export const TimeTrackerWindow = GObject.registerClass({
     return text;
   }
 
-  // Write the given text to the log file
   async writetofile(filepath, text, notify = true) {
-    const file = Gio.File.new_for_path(filepath);
-    console.log("Writing to " + filepath);
-    //console.log("\"" + text + "\"");
-
     try {
+      const file = Gio.File.new_for_path(filepath);
+      console.log("Writing to " + filepath);
       //sync_operation = 2;
       // Save the file (asynchronously)
       let contentsBytes = new GLib.Bytes(text)
@@ -1737,22 +1739,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
 
       const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
-      this.displayfilterpart(this._reportdata, "Total", filter, report.groupby, startDate, endDate);
-      /*
-      if (this._customreportsbox) {
-        this._customreportsbox.unparent();
-        this._customreportsbox.run_dispose();
-      }
-      if (customfilter > -1) {
-        filters.splice(customfilter, 1);
-        customfilter = -1;
-      }
-      this._customreportsbox = new Gtk.Box({
-        orientation: 1,
-      });
-      this._customreport.append(this._customreportsbox);
-      customfilter = this.displayfilter(this._customreportsbox, null, true, customgroup, customstart, customend, customproject, custombilled, customtag, customclient);
-      */
+      this.displayfilterpart(this._reportdata, "Total", filter, report.groupby, startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
+
     } catch (e) {
       console.log(e);
     }
@@ -2029,7 +2017,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     return date;
   }
 
-  filterbuttons(parent, title, filter, start, end) { //, startDate, endDate, theproject, billed, tag, client) {
+  filterbuttons(parent, title, filter, start, end, theproject, billed, tag, client) {
     const box = new Gtk.Box({
       hexpand: true,
       margin_top: 3,
@@ -2044,7 +2032,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
     if (filter.length > 1) {
       button.connect("clicked", () => {
-        this.bulkeditdialog(filter, start, end); //, startDate, endDate, theproject, billed, tag, client);
+        this.filterdetailsdialog(filter, start, end, theproject, billed, tag, client);
       });
     }
     box.append(label);
@@ -2095,7 +2083,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
 
       const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
-      this.displayfilterpart(box1, "Total", filter, report.groupby, startDate, endDate);
+      this.displayfilterpart(box1, "Total", filter, report.groupby, startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
+
+      //this.exportbutton(box, filter);
 
       this._presetreports.append(frame);
 
@@ -2104,9 +2094,58 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  displayfilterpart(parent, title, filter, groupby, start, end) {
+  async exporttocsv(filteredentries) {
     try {
-      this.filterbuttons(parent, title, filter, start, end);
+
+      const fileDialog = new Gtk.FileDialog();
+
+      // Add filters
+      const fileFilter1 = new Gtk.FileFilter();
+      fileFilter1.add_suffix("csv");
+      fileFilter1.set_name("Comma-Separated Values");
+      const fileFilter2 = new Gtk.FileFilter();
+      fileFilter2.add_pattern("*");
+      fileFilter2.set_name("All Files");
+      const filterlist = new Gio.ListStore({ item_type: Gtk.FileFilter });
+      filterlist.append(fileFilter1);
+      filterlist.append(fileFilter2);
+      fileDialog.set_filters(filterlist);
+
+      // Suggested file name: "time entries,start_" + start + ",end_" + end + ",project_" + theproject + ",billed_" + billed + ",tag_" + tag + ",client_" + client
+      let suggestedname = "time entries";
+
+      fileDialog.save(this, null, async (self, result) => {
+        try {
+          const file = self.save_finish(result);
+          console.log(file);
+
+          if (file) {
+            let path = file.get_path();
+
+            // Default to CSV suffix if none chosen
+            const basename = file.get_basename();
+            if (basename.split(".").length < 2) {
+              path += ".csv";
+            }
+            if (!file.query_exists(null)) {
+              await this.createfile(path);
+            }
+            console.log("Exporting entries to " + path);
+            this.writelog(path, filteredentries);
+          }
+        } catch(_) {
+          console.log("No file chosen");
+        }
+      });
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  // Creates a level of buttons and calls itself to create the next level down for each button in that level
+  displayfilterpart(parent, title, filter, groupby, start, end, theproject, billed, tag, client) {
+    try {
+      this.filterbuttons(parent, title, filter, start, end, theproject, billed, tag, client);
 
       if (groupby.length > 0) {
         const box = new Gtk.Box({
@@ -2125,7 +2164,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         let groups = this.groupentries(filter, groupby[0]);
 
         for (let i = 0; i < groups.length; i++) {
-          this.displayfilterpart(box, groups[i].title, groups[i].filter, newgroupby, start, end);
+          this.displayfilterpart(box, groups[i].title, groups[i].filter, newgroupby, start, end, theproject, billed, tag, client);
         }
       }
     } catch (e) {
@@ -2470,15 +2509,43 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  async filterdetailsdialog(filteredentries, start, end, theproject, billed, tag, client) {
+    try {
+      const dialog = new Adw.AlertDialog({
+        heading: "Details",
+        body: "What would you like to do?",
+        close_response: "cancel",
+      });
+      dialog.add_response("cancel", "Cancel");
+      dialog.add_response("bulk", "Bulk Edit");
+      dialog.add_response("export", "Export CSV");
+
+      dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
+        if (response_id === "bulk") {
+          this.bulkeditdialog(filteredentries, start, end);
+        } else if (response_id === "export") {
+          this.exporttocsv(filteredentries, start, end, theproject, billed, tag, client);
+        }
+      });
+
+      dialogsopen += 1;
+      dialog.present(this);
+
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
   async bulkeditdialog(filteredentries, start, end) { //, start, end, theproject, billed, tag, client) {
     try {
-      console.log("Preparing to bulk edit " + filteredentries.length + " entries between " + start + " and " + end);
+      console.log("Preparing to bulk edit " + (filteredentries.length-1) + " entries between " + start + " and " + end);
       const dialog = new Adw.AlertDialog({
         heading: "Bulk Edit Entries",
         close_response: "cancel",
       });
       dialog.add_response("cancel", "Cancel");
-      dialog.add_response("okay", "Edit Entries");
+      dialog.add_response("okay", "Apply Changes");
       /*
       let startDate = start;
 
@@ -3618,9 +3685,10 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (isNaN(second)) {
             second = 0;
           }
-          chosendate.setDate(dayspin.get_value());
           chosendate.setMonth(monthlist.get_selected());
           chosendate.setFullYear(yearspin.get_text());
+          // This line MUST follow month and year, since otherwise, a day of greater value than the chosendate's original month's number of days could cause a problem.
+          chosendate.setDate(dayspin.get_value());
           chosendate.setHours(hour);
           chosendate.setMinutes(minute);
           chosendate.setSeconds(parseInt(secondentry.get_text()));
@@ -3632,7 +3700,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               chosendate.setHours(0);
             }
           }
-          //console.log("Selected date: " + chosendate);
+          console.log("Selected date: " + chosendate);
 
           if (isNaN(chosendate.getTime())) {
             // If parsing fails, set validated message
@@ -4393,7 +4461,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       // Save current entries to temporary file, if any
       if (text != "") {
-        await this.writelog(sync_templogpath, text);
+        await this.writetofile(sync_templogpath, text);
       } else if (fileexists && !filehasbeenopened) {
         // If existing temp file, read from temp
         await this.readfromfile(sync_templogpath);
@@ -4491,7 +4559,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (todaysbackup == -1) {
           // Run backup
           await this.createfile(filepath + "/" + todaysname);
-          await this.writelog(filepath + "/" + todaysname, false);
+          await this.writelog(filepath + "/" + todaysname, null, false);
           console.log("Saved a backup for today");
           files.push(todaysname);
         } else {
