@@ -1,4 +1,4 @@
-# Time Tracker
+# About Time Tracker
 A simple time-tracker program for GNOME. Instead of using online-first options like Toggl and Clockify, use a lightning-fast local-first option that is still able to sync with multiple computers via cloud or network storage.
 Time Tracker allows you to track different projects, see how much time you've spent on each project, and sync with a local file or a file in your own cloud storage. You can also open your sync file in spreadsheet software (since it's a CSV file).
 ## Tracking
@@ -16,3 +16,7 @@ Time Tracker allows you to track different projects, see how much time you've sp
 - Set how frequently Time Tracker autosaves.
 - Set how many daily backups you want Time Tracker to keep.
 - Set whether to use 24-hour format or 12-hour (AM/PM) format.
+# Installing Time Tracker
+Time Tracker can be installed from Flathub. You'll need to make sure flatpak is installed on your system and that the Flathub repo is enabled. Instructions can be found [here](https://flathub.org/setup).
+# Building Time Tracker
+To build Time Tracker, install [Gnome Builder](https://flathub.org/apps/org.gnome.Builder). Download this Github repo and open it in Builder.
