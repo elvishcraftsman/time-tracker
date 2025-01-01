@@ -61,7 +61,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.0.2";
+let version = "2.0.3";
 let dialogsopen = 0;
 
 // Creating the "project" class for displaying in the projectlist item
@@ -294,6 +294,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.editentrydialog();
     });
 
+    // Display custom report controls
     const controls = this.reportcontrols(reports[0]);
     this._reportcontrols.append(controls);
 
@@ -395,13 +396,15 @@ export const TimeTrackerWindow = GObject.registerClass({
         let input = reportsArray[i].split("`");
         let output = {};
         output.title = input[0];
-        output.start = new Date(input[1]);
-        if (isNaN(output.start)) {
+        if (input[1].startsWith('day') || input[1].startsWith('week') || input[1].startsWith('month') || input[1].startsWith('year')) {
           output.start = input[1];
+        } else {
+          output.start = new Date(input[1]);
         }
-        output.end = new Date(input[2]);
-        if (isNaN(output.end)) {
+        if (input[2].startsWith('day') || input[2].startsWith('week') || input[2].startsWith('month') || input[2].startsWith('year')) {
           output.end = input[2];
+        } else {
+          output.end = new Date(input[2]);
         }
         if (input[3] != "") {
           output.filters = {project: input[3]};
@@ -676,6 +679,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               // Empty sync_extracolumns
               sync_extracolumns = [];
               await this.setentries([]);
+              this.updatecount(entries.length);
             } else {
               if (!file.query_exists(null)) {
                 await this.createfile(logpath);
@@ -1028,6 +1032,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.stopTimer();
     }
 
+    currentTimer = entries[number].ID;
+    console.log("Deleted entry # " + number + ", ID is " + currentTimer);
+    
     this.logmodel.remove(entries.length - 1 - number);
     entries.splice(number, 1);
     this.updatecount(entries.length);
@@ -1098,8 +1105,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         billed = entries[number].billed;
         meta = entries[number].meta;
         dialog.heading = "Edit Entry";
-        dialog.add_response("delete", "Delete");
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
+        //dialog.add_response("delete", "Delete");
+        //dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
       }
       dialog.add_response("okay", "OK");
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
@@ -1224,7 +1231,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       });
       durationb.connect("clicked", () => {
-        // Need to create duration dialog !!!!
         this.durationdialog(startDate, endDate, (date) => {
           endDate = date;
           endb.label = this.datetotext(date);
@@ -1244,56 +1250,76 @@ export const TimeTrackerWindow = GObject.registerClass({
         billedb.set_active(true);
       }
       box.append(billedb);
+      
+      const deleteb = new Gtk.ToggleButton();
+      const deletebcontent = new Adw.ButtonContent({
+        label: "Delete",
+        icon_name: "user-trash-symbolic",
+      });
+      deleteb.set_child(deletebcontent);
+      deleteb.connect("toggled", () => {
+        let style = deleteb.get_style_context();
+        if (deleteb.get_active()) {
+          style.add_class("destructive-action");
+        } else {
+          if (style.has_class("destructive-action")) {
+            style.remove_class("destructive-action");
+          }
+        }
+      });
+      box.append(deleteb);
 
       dialog.set_extra_child(box);
 
       dialog.connect("response", (_, response_id) => {
         dialogsopen -= 1;
         if (response_id === "okay") {
-          let validated = "";
+          if (!deleteb.get_active()) {
+            let validated = "";
 
-          if (endDate !== null && startDate > endDate) {
-            validated += "End date is earlier than start date.";
-          } else if (endDate == null && startDate > new Date()) {
-            validated += "Start date is in the future.";
-          }
+            if (endDate !== null && startDate > endDate) {
+              validated += "End date is earlier than start date.";
+            } else if (endDate == null && startDate > new Date()) {
+              validated += "Start date is in the future.";
+            }
 
-          if (validated == "") {
-            const selection = projectlist2.selected_item;
-            const value = selection.value;
-            if (selection) {
-              theproject = value;
-              if (number == this.currentTimer()) {
-                nochange = true;
-                this._projectlist.set_selected(projectlist2.get_selected());
-                this._metaentry.set_text(metaentry2.get_text());
-                nochange = false;
+            if (validated == "") {
+              const selection = projectlist2.selected_item;
+              const value = selection.value;
+              if (selection) {
+                theproject = value;
+                if (number == this.currentTimer()) {
+                  nochange = true;
+                  this._projectlist.set_selected(projectlist2.get_selected());
+                  this._metaentry.set_text(metaentry2.get_text());
+                  nochange = false;
+                }
               }
-            }
-            if (metaentry2.get_text() != "") {
-              meta = metaentry2.get_text();
+              if (metaentry2.get_text() != "") {
+                meta = metaentry2.get_text();
+              } else {
+                meta = null;
+              }
+              if (number == -1) {
+                console.log("Adding " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
+                this.addentry_user(theproject, meta, startDate, endDate, billedb.get_active());
+              } else {
+                console.log("Editing " + number + " " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
+                this.editentry_user(number, theproject, startDate, endDate, billedb.get_active(), meta);
+              }
+              if (this.currentTimer() == number && endDate == null) {
+                startedTime = startDate; // Update the currently running entry
+              }
             } else {
-              meta = null;
-            }
-            if (number == -1) {
-              console.log("Adding " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
-              this.addentry_user(theproject, meta, startDate, endDate, billedb.get_active());
-            } else {
-              console.log("Editing " + number + " " + theproject + " " + startDate + " " + endDate + " " + billedb.get_active());
-              this.editentry_user(number, theproject, startDate, endDate, billedb.get_active(), meta);
-            }
-            if (this.currentTimer() == number && endDate == null) {
-              startedTime = startDate; // Update the currently running entry
+              this.editentrydialog(
+                number,
+                "Your response was invalid. Reason: " + validated,
+              );
             }
           } else {
-            this.editentrydialog(
-              number,
-              "Your response was invalid. Reason: " + validated,
-            );
+            this.removeentry_user(number);
+            this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
           }
-        } else if (response_id === "delete") {
-          this.removeentry_user(number);
-          this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
         }
       });
 
@@ -1667,7 +1693,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     timer = setInterval(() => this.setTimerText(), 1000);
     currentTimer = entries[number].ID;
     console.log("Started entry # " + number + ", ID is " + currentTimer);
-    //console.log("Timer has been started.");
   }
 
   // Convert from seconds to output format
@@ -2860,7 +2885,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             this.reportdialog(reports[number + 1], (response) => {
               if (response == "okay") {
                 const row = new Adw.ActionRow({
-                  title: reports[number + 1].get_title(),
+                  title: reports[number + 1].title,
                 });
                 listbox.remove(selection);
                 listbox.insert(row, number);
@@ -2949,7 +2974,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       //let reportbuttons = [];
       for (let i = 1; i < reports.length; i++) {
-        if (!reports[i].deleted) {
+        if (!reports[i].deleted) { // if is not needed, right?
           const report = reports[i];
           const row = new Adw.ActionRow();
           row.title = report.title;
@@ -2988,63 +3013,99 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   reportdialog(report, tocall = null) {
-    if (report == null) {
-      report = {title: "", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], };
-      reports.push(report);
+    try {
+      let newreport = false;
+      if (report == null) {
+        newreport = true;
+        report = {title: "", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], };
+      }
+
+      const dialog = new Adw.AlertDialog({
+        heading: "Edit Report",
+        close_response: "cancel",
+      });
+      dialog.add_response("cancel", "Cancel");
+      //dialog.add_response("delete", "Delete");
+      dialog.add_response("okay", "OK");
+      //dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+
+      const box = new Gtk.Box({
+        orientation: 1,
+      });
+      const entry = new Gtk.Entry({
+        placeholder_text: "Title",
+        margin_bottom: 12,
+      });
+      entry.set_text(report.title);
+      box.append(entry);
+      box.append(this.reportcontrols(report));
+      
+      const deleteb = new Gtk.ToggleButton({
+        margin_top: 12,
+      });
+      if (!newreport) {
+        const deletebcontent = new Adw.ButtonContent({
+          label: "Delete",
+          icon_name: "user-trash-symbolic",
+        });
+        deleteb.set_child(deletebcontent);
+        deleteb.connect("toggled", () => {
+          let style = deleteb.get_style_context();
+          if (deleteb.get_active()) {
+            style.add_class("destructive-action");
+          } else {
+            if (style.has_class("destructive-action")) {
+              style.remove_class("destructive-action");
+            }
+          }
+        });
+        box.append(deleteb);
+      }
+
+      dialog.set_extra_child(box);
+
+      dialog.connect("response", (_, response_id) => {
+        dialogsopen -= 1;
+        if (response_id === "okay") {
+          if (!deleteb.get_active()) {
+            if (newreport) {
+              reports.push(report);
+            }
+            report.title = entry.get_text();
+            this.updatetotals();
+          } else {
+            report.deleted = true;
+            const foundItem = reports.find(item => item.deleted === true);
+            if (foundItem) {
+              reports.splice(reports.indexOf(foundItem), 1);
+            }
+            this.updatetotals();
+          }
+        } else if (response_id == "cancel" && report == null) {
+          report = {deleted: true};
+        }
+        let reportstowrite = [];
+        for (let i = 1; i < reports.length; i++) {
+          if (!reports[i].deleted) { // This if is probably not needed
+            reportstowrite.push(reports[i]);
+          }
+        }
+        this._settings.set_string("reports", this.reportstosettings(reportstowrite));
+        if (tocall && typeof tocall === 'function') {
+          if (!deleteb.get_active()) {
+            tocall(response_id);
+          } else {
+            tocall("delete");
+          }
+        }
+      });
+
+      dialog.present(this);
+      dialogsopen += 1;
+    } catch (e) {
+      console.log(e);
     }
-
-    const dialog = new Adw.AlertDialog({
-      heading: "Edit Report",
-      close_response: "cancel",
-    });
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("delete", "Delete");
-    dialog.add_response("okay", "OK");
-    dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
-    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
-
-    const box = new Gtk.Box({
-      orientation: 1,
-    });
-    const entry = new Gtk.Entry({
-      placeholder_text: "Title",
-      margin_bottom: 12,
-    });
-    entry.set_text(report.title);
-    box.append(entry);
-    box.append(this.reportcontrols(report));
-
-    dialog.set_extra_child(box);
-
-    dialog.connect("response", (_, response_id) => {
-      dialogsopen -= 1;
-      if (response_id === "okay") {
-        report.title = entry.get_text();
-        this.updatetotals();
-      } else if (response_id === "delete") {
-        report.deleted = true;
-        const foundItem = reports.find(item => item.deleted === true);
-        if (foundItem) {
-          reports.splice(reports.indexOf(foundItem), 1);
-        }
-        this.updatetotals();
-      } else if (response_id == "cancel" && report == null) {
-        report = {deleted: true};
-      }
-      let reportstowrite = [];
-      for (let i = 1; i < reports.length; i++) {
-        if (!reports[i].deleted) { // This if is probably not needed
-          reportstowrite.push(reports[i]);
-        }
-      }
-      this._settings.set_string("reports", this.reportstosettings(reportstowrite));
-      if (tocall && typeof tocall === 'function') {
-        tocall(response_id);
-      }
-    });
-
-    dialog.present(this);
-    dialogsopen += 1;
   }
 
   async reportfiltersdialog(report, tocall = null) {

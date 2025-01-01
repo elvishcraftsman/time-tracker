@@ -100,6 +100,7 @@
                           <object class="GtkLabel" id="count">
                             <property name="label" translatable="true">0</property>
                             <property name="halign">2</property>
+                            <property name="visible">false</property>
                           </object>
                         </child>
                         <child>
