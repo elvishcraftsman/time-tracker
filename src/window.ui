@@ -97,6 +97,12 @@
                           </object>
                         </child>
                         <child>
+                          <object class="GtkLabel" id="count">
+                            <property name="label" translatable="true">0</property>
+                            <property name="halign">2</property>
+                          </object>
+                        </child>
+                        <child>
                           <object class="GtkScrolledWindow">
                             <property name="hexpand">true</property>
                             <property name="vexpand">true</property>

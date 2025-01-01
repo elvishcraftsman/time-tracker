@@ -149,7 +149,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   InternalChildren: ['status', 'startbutton', 'projectlist',
   'list_box_editable', 'add', 'toast_overlay',
   'customreport', 'reportcontrols', 'reportdata',
-  'metaentry', 'presetreports'],
+  'metaentry', 'presetreports', 'count'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -357,6 +357,14 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
 
     // All done constructing the window!
+  }
+
+  async updatecount(number) {
+    try {
+      this._count.label = number.toString();
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   // Do any code that should happen if this is the first time opening Time Tracker in the current version
@@ -609,6 +617,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     filterlist.append(fileFilter1);
     filterlist.append(fileFilter2);
     fileDialog.set_filters(filterlist);
+    fileDialog.set_initial_name("time log");
 
     fileDialog.save(this, null, async (self, result) => {
       try {
@@ -1021,6 +1030,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     this.logmodel.remove(entries.length - 1 - number);
     entries.splice(number, 1);
+    this.updatecount(entries.length);
 
     console.log("removeentrybyIndex() is queuing a change to write out: " + writeout);
     changestobemade = writeout;
@@ -1482,6 +1492,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     if (index == -1 || index > entries.length) {
       entries.push({ start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
+      this.updatecount(entries.length);
 
       let new_item = "";
       if (endDate === null && !logging) {
@@ -1501,6 +1512,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     } else {
       entries.splice(index, 0, { start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
+      this.updatecount(entries.length);
 
       let new_item = "";
       if (endDate === null && !logging) {
@@ -2085,8 +2097,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
       this.displayfilterpart(box1, "Total", filter, report.groupby, startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
 
-      //this.exportbutton(box, filter);
-
       this._presetreports.append(frame);
 
     } catch (e) {
@@ -2110,9 +2120,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       filterlist.append(fileFilter1);
       filterlist.append(fileFilter2);
       fileDialog.set_filters(filterlist);
-
-      // Suggested file name: "time entries,start_" + start + ",end_" + end + ",project_" + theproject + ",billed_" + billed + ",tag_" + tag + ",client_" + client
-      let suggestedname = "time entries";
+      fileDialog.set_initial_name("time entries");
 
       fileDialog.save(this, null, async (self, result) => {
         try {
@@ -3374,10 +3382,14 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Allows choosing an ending date by choosing a duration
   async durationdialog(startDate, endDate, tocall = null) {
     try {
-      let duration = this.calcTimeDifference(startDate, endDate, false);
+      const end = new Date();
+      if (endDate != null) {
+        end = endDate;
+      }
+      let duration = this.calcTimeDifference(startDate, end, false);
 
       const dialog = new Adw.AlertDialog({
-        heading: "Choose the Date & Time",
+        heading: "Choose the Duration",
         close_response: "cancel",
       });
 
@@ -3819,6 +3831,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
             // Now add this entry to the entries array
             entries.push(entry);
+            this.updatecount(entries.length);
 
             // If the entry has no end date
             if (entry.end === null) {
