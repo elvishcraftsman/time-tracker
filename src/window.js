@@ -66,6 +66,7 @@ let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
 let logpage = 0;
+let timerwidget;
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -151,7 +152,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
   InternalChildren: ['status', 'startbutton', 'projectlist',
   'logbox', 'logcontrols', 'add', 'switcher_title', 'menu', 'toast_overlay',
-  'customreport', 'reportcontrols', 'reportdata',
+  'customreport', 'reportcontrols', 'reportdata', 'logouter',
   'metaentry', 'presetreports', 'stack', 'page1', 'page3',
   'newbutton', 'openbutton', 'systembutton', 'logscroll'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
@@ -1049,8 +1050,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.stopTimer();
     }
 
-    currentTimer = entries[number].ID;
-    console.log("Deleted entry # " + number + ", ID is " + currentTimer);
+    //currentTimer = entries[number].ID; //not sure what this was doing
+    console.log("Deleted entry # " + number + ", ID is " + entries[number].ID);
     
     // !!!!
     //this.logmodel.remove(entries.length - 1 - number);
@@ -1473,6 +1474,18 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
   
+  // In case we're going to the next page
+  async loadnextpage() {
+    if (this._logbox) {
+      this._logbox.unparent();
+      this._logbox.run_dispose();
+      this._logbox = new Gtk.ScrolledWindow();
+      this._logouter.append(this._logbox);
+    }
+    
+    this.loadlog();
+  }
+  
   // After the log info has been updated, or a button clicked, load the change.
   async loadlog() {
     try {
@@ -1496,7 +1509,6 @@ export const TimeTrackerWindow = GObject.registerClass({
             const index = this.findindexbyID(ID);
             const entry = entries[index];
             
-            let duration = this.calcTimeDifference(entry.start, entry.end);
             let description = "";
             if (entry.meta != null) {
               if (entry.project == "(no project)") {
@@ -1509,14 +1521,6 @@ export const TimeTrackerWindow = GObject.registerClass({
               description = entry.project;
             }
             
-            if (entry.end === null) {
-              if (index == this.currentTimer()) {
-                duration = "[logging]";
-              } else {
-                duration = "[???????]";
-              }
-            }
-            
             const button = new Gtk.Button({
               halign: 3,
               valign: 3,
@@ -1525,9 +1529,22 @@ export const TimeTrackerWindow = GObject.registerClass({
             });
             const row = new Adw.ActionRow({
               title: description,
-              subtitle: "<b>" + duration + "</b>",
               //activatable_widget: button,
             });
+            
+            if (entry.end === null) {
+              if (index == this.currentTimer()) {
+                timerwidget = row;
+                const currentDate = new Date();
+                const text = this.calcTimeDifference(startedTime, currentDate);
+                timerwidget.subtitle = "<b>" + text + "</b>";
+              } else {
+                row.subtitle = "<b>[??????]</b>";
+              }
+            } else {
+              row.subtitle = "<b>" + this.calcTimeDifference(entry.start, entry.end) + "</b>";
+            }
+            
             row.add_suffix(button);
             
             button.connect("clicked", () => {
@@ -1541,67 +1558,16 @@ export const TimeTrackerWindow = GObject.registerClass({
           break;
         }
       }
-      /*
-      const box = new Gtk.Box({
-        orientation: 1,
-      });
-      for (let i = numberofdays * logpage; i < (numberofdays * logpage) + numberofdays; i++) {
-        if (i < logdays.length) {
-          const daybox = new Gtk.Box({
-            orientation: 1,
-            margin_bottom: 12,
-          });
-          let dbstyle = daybox.get_style_context();
-          dbstyle.add_class("card");
-          
-          const title = new Gtk.Label({
-            margin_bottom: 6,
-            margin_top: 6,
-          });
-          title.label = this.datetodaytitle(logdays[i].day);
-          let style1 = title.get_style_context();
-          style1.add_class("caption-heading");
-          style1.add_class("accent");
-          daybox.append(title);
-          
-          const box1 = new Gtk.Box({
-            orientation: 1,
-            hexpand: 1,
-          });
-          let style = box1.get_style_context();
-          style.add_class("linked");
-          logdays[i].IDs.forEach(ID => {
-            const button = new Gtk.Button({
-              label: entries[this.findindexbyID(ID)].project,
-            });
-            let style2 = button.get_style_context();
-            style2.add_class("flat");
-            button.connect("clicked", () => {
-              this.editentrydialog(ID);
-            });
-            box1.append(button);
-          });
-          daybox.append(box1);
-          box.append(daybox);
-        } else {
-          break;
-        }
-      }
-      */
     
       // Delete all current log entries
-      for (let i = 0; i < 100; i++) {
-        let child = this._logbox.get_first_child();
-        if (child) {
-          child.unparent();
-          child.run_dispose();
-        } else {
-          break;
-        }
+      let child = this._logbox.get_child();
+      if (child) {
+        child.unparent();
+        child.run_dispose();
       }
       
       // Add the new info
-      this._logbox.append(box);
+      this._logbox.set_child(box);
       
       // Delete all current log entries
       for (let i = 0; i < 100; i++) {
@@ -1646,22 +1612,22 @@ export const TimeTrackerWindow = GObject.registerClass({
         } else {
           button.connect("clicked", () => {
             logpage = displaypages[i];
-            this.loadlog();
-            const location = new Gtk.Adjustment();
-            location.set_value(0.5);
-            this._logscroll.set_vadjustment(location);
-            console.log(location.get_value());
+            this.loadnextpage();
           });
         }
         this._logcontrols.append(button);
-        if (displaypages[i+1] > displaypages[i] + 1) {
+        if (displaypages[i + 1] > displaypages[i] + 1) {
           const button2 = new Gtk.Button({
             label: ".",
           });
           let style3 = button2.get_style_context();
           style3.add_class("flat");
           button2.connect("clicked", () => {
-            this.gotopagedialog();
+            if (displaypages[i] == 1) {
+              this.gotopagedialog(Math.ceil((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
+            } else {
+              this.gotopagedialog(Math.floor((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
+            }
           });
           this._logcontrols.append(button2);
         }
@@ -1719,7 +1685,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           logpage = parseInt(gotopage) - 1;
           */
           logpage = spin.get_value() - 1;
-          this.loadlog();
+          this.loadnextpage();
         }
       });
 
@@ -1967,9 +1933,17 @@ export const TimeTrackerWindow = GObject.registerClass({
   // When the timer needs to be stopped, stop it
   async stopTimer() {
     try {
+      // Stop logging
       logging = false;
       clearInterval(timer);
+      
+      // Make sure that the actionrow that had the timer is up to date
+      let entry = entries[this.currentTimer()];
+      timerwidget.subtitle = "<b>" + this.calcTimeDifference(entry.start, entry.end) + "</b>";
+      
+      // Reset everything
       currentTimer = null;
+      timerwidget = null;
       this._startbutton.label = "Start";
       let style = this._startbutton.get_style_context();
       if (style.has_class("destructive-action")) {
@@ -1995,7 +1969,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     try {
       if (logging) {
         const currentDate = new Date();
-        this._status.label = this.calcTimeDifference(startedTime, currentDate);
+        const text = this.calcTimeDifference(startedTime, currentDate);
+        this._status.label = text;
+        if (timerwidget != null) {
+          timerwidget.subtitle = "<b>" + text + "</b>";
+        }
       } else {
         this._status.label = "00:00:00";
       }
@@ -3781,7 +3759,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Allows choosing an ending date by choosing a duration
   async durationdialog(startDate, endDate, tocall = null) {
     try {
-      const end = new Date();
+      let end = new Date();
       if (endDate != null) {
         end = endDate;
       }
@@ -3804,6 +3782,9 @@ export const TimeTrackerWindow = GObject.registerClass({
         orientation: 0,
         spacing: 0,
       });
+      let timestyle = timebox.get_style_context();
+      timestyle.add_class("linked");
+      
       const bottombox = new Gtk.Box({
         orientation: 1,
         spacing: 6,
