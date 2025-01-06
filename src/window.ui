@@ -45,65 +45,66 @@
                 <property name="child">
                   <object class="AdwToastOverlay" id="toast_overlay">
                     <property name="child">
-                      <object class="GtkBox" id="main">
+                      <object class="GtkBox">
                         <property name="orientation">1</property>
-                        <property name="halign">3</property>
-                        <property name="margin-top">24</property>
-                        <property name="margin-bottom">24</property>
                         <child>
-                          <object class="GtkLabel" id="status">
-                            <property name="label" translatable="true">00:00:00</property>
-                            <style>
-                              <class name="title-1"/>
-                              <class name="numeric"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkBox" id="controls">
-                            <property name="orientation">0</property>
-                            <property name="valign">3</property>
+                          <object class="GtkBox" id="main">
+                            <property name="orientation">1</property>
                             <property name="halign">3</property>
                             <property name="margin-top">24</property>
-                            <property name="margin-bottom">12</property>
-                            <style>
-                              <class name="linked"/>
-                            </style>
+                            <property name="margin-bottom">0</property>
                             <child>
-                              <object class="GtkDropDown" id="projectlist">
+                              <object class="GtkLabel" id="status">
+                                <property name="label" translatable="true">00:00:00</property>
+                                <style>
+                                  <class name="title-1"/>
+                                  <class name="numeric"/>
+                                </style>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="controls">
+                                <property name="orientation">0</property>
+                                <property name="valign">3</property>
+                                <property name="halign">3</property>
+                                <property name="margin-top">24</property>
+                                <property name="margin-bottom">12</property>
+                                <style>
+                                  <class name="linked"/>
+                                </style>
+                                <child>
+                                  <object class="GtkDropDown" id="projectlist">
+                                    <property name="width-request">140</property>
+                                    <property name="enable-search">true</property>
+                                    <property name="model">
+                                      <object class="GtkStringList"></object>
+                                    </property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkEntry" id="metaentry">
+                                    <property name="placeholder-text">Task  #tag  @client</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkButton" id="startbutton">
                                 <property name="width-request">140</property>
-                                <property name="enable-search">true</property>
-                                <property name="model">
-                                  <object class="GtkStringList"></object>
-                                </property>
+                                <property name="label" translatable="true">Start</property>
+                                <property name="action-name">win.start</property>
+                                <property name="margin-bottom">24</property>
+                                <style>
+                                  <class name="suggested-action"/>
+                                </style>
                               </object>
                             </child>
-                            <child>
-                              <object class="GtkEntry" id="metaentry">
-                                <property name="placeholder-text">Task  #tag  @client</property>
-                              </object>
-                            </child>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkButton" id="startbutton">
-                            <property name="width-request">140</property>
-                            <property name="label" translatable="true">Start</property>
-                            <property name="action-name">win.start</property>
-                            <property name="margin-bottom">24</property>
-                            <style>
-                              <class name="suggested-action"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkFrame">
                             <child>
                               <object class="GtkScrolledWindow">
                                 <property name="hexpand">true</property>
                                 <property name="vexpand">true</property>
                                 <property name="margin-top">6</property>
-                                <property name="margin-bottom">6</property>
+                                <property name="margin-bottom">0</property>
                                 <property name="margin-start">6</property>
                                 <property name="margin-end">6</property>
                                 <property name="width-request">300</property>
@@ -122,12 +123,13 @@
                           </object>
                         </child>
                         <child>
-                          <object class="GtkBox" id="logcontrols">
-                            <property name="margin-top">6</property>
-                            <property name="halign">3</property>
-                            <style>
-                              <class name="linked"/>
-                            </style>
+                          <object class="GtkActionBar" id="action_bar">
+                            <property name="revealed">true</property>
+                            <property name="valign">2</property>
+                            <child type="center">
+                              <object class="GtkBox" id="logcontrols">
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>
@@ -143,8 +145,9 @@
                 <property name="icon-name">timetracker-reports-symbolic</property>
                 <property name="use-underline">true</property>
                 <property name="child">
-                  <object class="GtkScrolledWindow">
+                  <object class="GtkScrolledWindow" id="logscroll">
                     <property name="child">
+                      
                   <object class="GtkBox">
                     <property name="orientation">1</property>
                     <property name="margin-start">24</property>
@@ -162,7 +165,10 @@
                         </child>
 
                         <child>
-                          <object class="GtkFrame">
+                          <object class="GtkBox">
+                            <style>
+                              <class name="card"/>
+                            </style>
                         <child>
                           <object class="GtkBox" id="customreport">
                             <property name="orientation">1</property>

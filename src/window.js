@@ -153,7 +153,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   'logbox', 'logcontrols', 'add', 'switcher_title', 'menu', 'toast_overlay',
   'customreport', 'reportcontrols', 'reportdata',
   'metaentry', 'presetreports', 'stack', 'page1', 'page3',
-  'newbutton', 'openbutton', 'systembutton'],
+  'newbutton', 'openbutton', 'systembutton', 'logscroll'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -1487,18 +1487,83 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       for (let i = numberofdays * logpage; i < (numberofdays * logpage) + numberofdays; i++) {
         if (i < logdays.length) {
-          let margin = 12;
-          if (i == numberofdays * logpage) {
-            margin = 0;
-          }
+          const daybox = new Adw.PreferencesGroup({
+            margin_bottom: 12,
+            title: this.datetodaytitle(logdays[i].day),
+          });
+          
+          logdays[i].IDs.forEach(ID => {
+            const index = this.findindexbyID(ID);
+            const entry = entries[index];
+            
+            let duration = this.calcTimeDifference(entry.start, entry.end);
+            let description = "";
+            if (entry.meta != null) {
+              if (entry.project == "(no project)") {
+                description = entry.meta;
+              } else {
+                // 55% is equivalent to .dim Adwaita class
+                description = entry.project + '  <span font_weight="bold" fgalpha="55%">' + entry.meta + '</span>';
+              }
+            } else {
+              description = entry.project;
+            }
+            
+            if (entry.end === null) {
+              if (index == this.currentTimer()) {
+                duration = "[logging]";
+              } else {
+                duration = "[???????]";
+              }
+            }
+            
+            const button = new Gtk.Button({
+              halign: 3,
+              valign: 3,
+              label: _("show toast"),
+              icon_name: "document-edit-symbolic",
+            });
+            const row = new Adw.ActionRow({
+              title: description,
+              subtitle: "<b>" + duration + "</b>",
+              //activatable_widget: button,
+            });
+            row.add_suffix(button);
+            
+            button.connect("clicked", () => {
+              this.editentrydialog(ID);
+            });
+            
+            daybox.add(row);
+          });
+          box.append(daybox);
+        } else {
+          break;
+        }
+      }
+      /*
+      const box = new Gtk.Box({
+        orientation: 1,
+      });
+      for (let i = numberofdays * logpage; i < (numberofdays * logpage) + numberofdays; i++) {
+        if (i < logdays.length) {
+          const daybox = new Gtk.Box({
+            orientation: 1,
+            margin_bottom: 12,
+          });
+          let dbstyle = daybox.get_style_context();
+          dbstyle.add_class("card");
+          
           const title = new Gtk.Label({
             margin_bottom: 6,
-            margin_top: margin,
+            margin_top: 6,
           });
           title.label = this.datetodaytitle(logdays[i].day);
           let style1 = title.get_style_context();
-          style1.add_class("title-3");
-          box.append(title);
+          style1.add_class("caption-heading");
+          style1.add_class("accent");
+          daybox.append(title);
+          
           const box1 = new Gtk.Box({
             orientation: 1,
             hexpand: 1,
@@ -1509,16 +1574,20 @@ export const TimeTrackerWindow = GObject.registerClass({
             const button = new Gtk.Button({
               label: entries[this.findindexbyID(ID)].project,
             });
+            let style2 = button.get_style_context();
+            style2.add_class("flat");
             button.connect("clicked", () => {
               this.editentrydialog(ID);
             });
             box1.append(button);
           });
-          box.append(box1);
+          daybox.append(box1);
+          box.append(daybox);
         } else {
           break;
         }
       }
+      */
     
       // Delete all current log entries
       for (let i = 0; i < 100; i++) {
@@ -1570,12 +1639,18 @@ export const TimeTrackerWindow = GObject.registerClass({
         const button = new Gtk.Button({
           label: (displaypages[i] + 1).toString(),
         });
+        let style2 = button.get_style_context();
+        style2.add_class("flat");
         if (displaypages[i] == logpage) {
           button.set_sensitive(false);
         } else {
           button.connect("clicked", () => {
             logpage = displaypages[i];
             this.loadlog();
+            const location = new Gtk.Adjustment();
+            location.set_value(0.5);
+            this._logscroll.set_vadjustment(location);
+            console.log(location.get_value());
           });
         }
         this._logcontrols.append(button);
@@ -1583,6 +1658,8 @@ export const TimeTrackerWindow = GObject.registerClass({
           const button2 = new Gtk.Button({
             label: ".",
           });
+          let style3 = button2.get_style_context();
+          style3.add_class("flat");
           button2.connect("clicked", () => {
             this.gotopagedialog();
           });
@@ -1594,7 +1671,8 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
   
-  async gotopagedialog() {    try {
+  async gotopagedialog(number = 1) {
+    try {
       const dialog = new Adw.AlertDialog({
         heading: "Go to Page",
         body: "Pick a page to go to.",
@@ -1603,7 +1681,14 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
-
+      
+      const spin = new Gtk.SpinButton({
+        orientation: 0,
+        width_request: 60,
+      });
+      spin.set_range(1, Math.ceil(logdays.length / numberofdays));
+      spin.set_value(number);
+      /*
       const frame = new Gtk.Frame();
       const view = new Gtk.TextView({
         editable: true,
@@ -1613,15 +1698,16 @@ export const TimeTrackerWindow = GObject.registerClass({
         right_margin: 4,
       });
       const { buffer } = view;
-
       frame.set_child(view);
-      dialog.set_extra_child(frame);
+      */
+      dialog.set_extra_child(spin);
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
       dialog.connect("response", (_, response_id) => {
         dialogsopen -= 1;
         if (response_id === "okay") {
+          /*
           let gotopage = buffer.get_text(
             buffer.get_start_iter(),
             buffer.get_end_iter(),
@@ -1631,6 +1717,8 @@ export const TimeTrackerWindow = GObject.registerClass({
           gotopage = gotopage.trim();
           
           logpage = parseInt(gotopage) - 1;
+          */
+          logpage = spin.get_value() - 1;
           this.loadlog();
         }
       });
@@ -1770,8 +1858,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
         //!!!!
         //this.logmodel.splice(0, 0, [new_item]);
-        this.updatelog();
         this.startTimer(entries.length - 1, startDate);
+        this.updatelog();
       } else {
         new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
         if (meta) {
@@ -1928,7 +2016,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Start the timer
-  async startTimer(number, startDate) {
+  startTimer(number, startDate) {
     logging = true;
     this._startbutton.label = "Stop";
     let style = this._startbutton.get_style_context();
@@ -2328,9 +2416,11 @@ export const TimeTrackerWindow = GObject.registerClass({
   // This function displays a preset group of filters in the Preset area
   async displayfilter(report) {
     try {
-      const frame = new Gtk.Frame({
+      const reportbox = new Gtk.Box({
         margin_bottom: 24,
       });
+      let style1 = reportbox.get_style_context();
+      style1.add_class("card");
       const box = new Gtk.Box({
         orientation: 1,
         hexpand: true,
@@ -2339,7 +2429,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         margin_top: 24,
         margin_bottom: 24,
       });
-      frame.set_child(box);
+      reportbox.append(box);
       const label = new Gtk.Label({
         label: report.title,
         margin_bottom: 12,
@@ -2370,7 +2460,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       const filter = this.filterentries(startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
       this.displayfilterpart(box1, "Total", filter, report.groupby, startDate, endDate, report.filters.project, report.filters.billed, report.filters.tag, report.filters.client);
 
-      this._presetreports.append(frame);
+      this._presetreports.append(reportbox);
 
     } catch (e) {
       console.log(e);
@@ -4240,7 +4330,6 @@ export const TimeTrackerWindow = GObject.registerClass({
           // Add to the visible log contents
           //!!!!
           //this.logmodel.splice(0, 0, new_items);
-          this.updatelog();
 
           if (!logging) {
             // Start logging timer for the latest still running entry
@@ -4248,9 +4337,8 @@ export const TimeTrackerWindow = GObject.registerClass({
               this.startTimer(latestStartIndex + modelLength, latestStartDate);
               // Set that entry as [logging]
               //!!!!
-              this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
+              //this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
             }
-
           } else {
             // Check if the latestStart is later than the currently logging entry
             let current = this.currentTimer();
@@ -4259,7 +4347,6 @@ export const TimeTrackerWindow = GObject.registerClass({
                 // Set that entry as [???????]
                 //!!!!
                 //this.logmodel.splice(entries.length - 1 - current, 1, ["[???????] | Project: " + entries[current].project]);
-                this.updatelog();
                 this.stopTimer();
 
                 this.startTimer(latestStartIndex + modelLength, latestStartDate);
@@ -4270,6 +4357,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               }
             }
           }
+          this.updatelog();
         }
       } catch (e) {
         console.log(e);

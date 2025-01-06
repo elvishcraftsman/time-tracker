@@ -63,3 +63,26 @@ export function main(argv) {
     const application = new TimeTrackerApplication();
     return application.runAsync(argv);
 }
+
+// Loading CSS stylesheet
+class CSS extends Gtk.Application {
+	vfunc_startup() {
+		super.vfunc_startup();
+		this.#loadStylesheet();
+	}
+
+	/* ... */
+
+	#loadStylesheet() {
+		// Load the stylesheet in a CssProvider
+		const provider = new Gtk.CssProvider();
+		provider.load_from_resource('/com/lynnmichaelmartin/TimeTracker/style.css');
+
+		// Add the provider to the StyleContext of the default display
+		Gtk.StyleContext.add_provider_for_display(
+			Gdk.Display.get_default(),
+			provider,
+			Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+		);
+	}
+}
