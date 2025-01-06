@@ -19,4 +19,9 @@ Time Tracker allows you to track different projects, see how much time you've sp
 # Installing Time Tracker
 Time Tracker can be installed from Flathub. You'll need to make sure flatpak is installed on your system and that the Flathub repo is enabled. Instructions can be found [here](https://flathub.org/setup).
 # Building Time Tracker
-To build Time Tracker, install [Gnome Builder](https://flathub.org/apps/org.gnome.Builder). Download this Github repo and open it in Builder.
+To build Time Tracker,
+1. Install [Gnome Builder](https://flathub.org/apps/org.gnome.Builder).
+2. Download this Github repo and open it in Builder.
+4. Make sure the repo is stored on your computer in a folder that is able to house executable files.
+3. Go to com.lynnmichaelmartin.TimeTracker.json and edit the line near the end called "url" to be pointing to where you have the repo stored on your computer.
+4. Build and run the app.
