@@ -1,5 +1,5 @@
 # About Time Tracker
-A simple time-tracker program for GNOME. Instead of using online-first options like Toggl and Clockify, use a lightning-fast local-first option that is still able to sync with multiple computers via cloud or network storage.
+A simple time-tracker program. Instead of using online-first options like Toggl and Clockify, use a lightning-fast, local-first option that is still able to sync with multiple computers using cloud or network storage.
 Time Tracker allows you to track different projects, see how much time you've spent on each project, and sync with a local file or a file in your own cloud storage. You can also open your sync file in spreadsheet software (since it's a CSV file).
 ## Tracking
 - Track the amount of time spent on different projects.
