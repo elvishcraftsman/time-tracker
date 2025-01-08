@@ -40,7 +40,7 @@ export const TimeTrackerApplication = GObject.registerClass(
                     developers: [
                         'Lynn Martin'
                     ],
-                    copyright: '© 2024 Lynn Martin. Licensed under the MIT-0 no attribution license.'
+                    copyright: '© 2025 Lynn Martin. Licensed under the MIT-0 no attribution license.'
                 };
                 const aboutWindow = new Adw.AboutWindow(aboutParams);
                 aboutWindow.present();

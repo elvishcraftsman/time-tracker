@@ -2,10 +2,10 @@
 <schemalist gettext-domain="time-tracker">
 	<schema id="com.lynnmichaelmartin.TimeTracker" path="/com/lynnmichaelmartin/TimeTracker/">
 	  <key name="window-width" type="i">
-      <default>450</default>
+      <default>350</default>
     </key>
     <key name="window-height" type="i">
-      <default>600</default>
+      <default>500</default>
     </key>
     <key name="window-maximized" type="b">
       <default>false</default>
@@ -38,7 +38,7 @@
       <default>'2.0.3'</default>
     </key>
     <key name="reports" type="s">
-      <default>'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed'</default>
+      <default>'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````client`project`/~/`Last Week`week-1`week-1`````client`project'</default>
     </key>
     <key name="resetproject" type="b">
       <default>true</default>

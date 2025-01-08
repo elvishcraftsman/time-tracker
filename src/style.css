@@ -1,6 +1,12 @@
 .timer {
-  background-color: var(--accent-bg-color);
+  font-size: 250%;
 }
-.entry {
-  
+.controls {
+  background-color: var(--card-bg-color);
+  border-radius: 0;
+}
+.no-padding {
+  padding-left: 12px;
+  padding-right: 12px;
+  font-size: smaller;
 }

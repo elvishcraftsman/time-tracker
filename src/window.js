@@ -150,7 +150,7 @@ for (let i = 0; i < 7; i++) {
 export const TimeTrackerWindow = GObject.registerClass({
   GTypeName: 'TimeTrackerWindow',
   Template: 'resource:///com/lynnmichaelmartin/TimeTracker/window.ui',
-  InternalChildren: ['status', 'startbutton', 'projectlist',
+  InternalChildren: ['status', 'startbutton', 'starticon', 'projectlist',
   'logbox', 'logcontrols', 'add', 'switcher_title', 'menu', 'toast_overlay',
   'customreport', 'reportcontrols', 'reportdata', 'logouter',
   'metaentry', 'presetreports', 'stack', 'page1', 'page3',
@@ -159,6 +159,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Connecting with the gsettings for Time Tracker
   _settings = new Gio.Settings({ schemaId: 'com.lynnmichaelmartin.TimeTracker' });
+  //_window_decorations = new Gio.Settings({ schemaId: 'org.gnome.desktop.wm.preferences' });
 
   constructor(application) {
     super({ application });
@@ -170,6 +171,15 @@ export const TimeTrackerWindow = GObject.registerClass({
         "window-height", this, "default-height", Gio.SettingsBindFlags.DEFAULT);
     this._settings.bind(
         "window-maximized", this, "maximized", Gio.SettingsBindFlags.DEFAULT);
+    
+    /* Doesn't seem to work for some reason
+    console.log(this._window_decorations.get_string("button-layout"));
+    if (this._window_decorations.get_string("button-layout").includes("minimize") && this._window_decorations.get_string("button-layout").includes("maximize")) {
+      console.log("Moving menu to accommodate window decorations.");
+      this._menu.unparent();
+      this._controls.add(this._menu);
+    }
+    */
 
     // Get the version history gsetting and call the versioning() function in case something should be done depending on the former version
     this.versioning(this._settings.get_string("version"));
@@ -1156,36 +1166,39 @@ export const TimeTrackerWindow = GObject.registerClass({
       box.append(metaentry2);
 
       const box0 = new Gtk.Box({
-        orientation: 0,
-        spacing: 12,
+        orientation: 1,
       });
       box.append(box0);
 
+      const startlabel = new Gtk.Label();
+      startlabel.label = "Start & End Time";
+      box0.append(startlabel);
+
       const box1 = new Gtk.Box({
-        orientation: 1,
-        spacing: 6,
+        orientation: 0,
       });
+      let timesstyle = box1.get_style_context();
+      timesstyle.add_class("linked");
       box0.append(box1);
 
+      /*
       const box2 = new Gtk.Box({
         orientation: 1,
-        spacing: 6,
       });
       box0.append(box2);
+      */
 
-      const startlabel = new Gtk.Label();
-      startlabel.label = "Start Time";
-      box1.append(startlabel);
-
+      /*
       const endlabel = new Gtk.Label();
       endlabel.label = "End Time";
       box2.append(endlabel);
+      */
 
       const startb = new Gtk.Button();
       box1.append(startb);
 
       const endb = new Gtk.Button();
-      box2.append(endb);
+      box1.append(endb);
 
       if (index > -1) {
         theproject = entries[index].project;
@@ -1199,7 +1212,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (endDate !== null) {
           endb.label = this.datetotext(endDate);
         } else {
-          endb.label = "Still Logging\nNo date or time yet."
+          endb.label = "Still Logging\nNo chosen time."
         }
       } else {
         const now = new Date();
@@ -1483,11 +1496,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       this._logouter.append(this._logbox);
     }
     
-    this.loadlog();
+    this.loadlog(true);
   }
   
   // After the log info has been updated, or a button clicked, load the change.
-  async loadlog() {
+  async loadlog(pagenav = false) {
     try {
       
       if (logpage > 0 && numberofdays * logpage > logdays.length - 1) {
@@ -1502,8 +1515,13 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (i < logdays.length) {
           const daybox = new Adw.PreferencesGroup({
             margin_bottom: 12,
+            margin_start: 6,
+            margin_end: 6,
             title: this.datetodaytitle(logdays[i].day),
           });
+          if (i == numberofdays * logpage) {
+            daybox.set_margin_top(18);
+          }
           
           logdays[i].IDs.forEach(ID => {
             const index = this.findindexbyID(ID);
@@ -1559,11 +1577,13 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
     
-      // Delete all current log entries
-      let child = this._logbox.get_child();
-      if (child) {
-        child.unparent();
-        child.run_dispose();
+      if (!pagenav) {
+        // Delete all current log entries
+        let child = this._logbox.get_child();
+        if (child) {
+          child.unparent();
+          child.run_dispose();
+        }
       }
       
       // Add the new info
@@ -1607,6 +1627,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         });
         let style2 = button.get_style_context();
         style2.add_class("flat");
+        style2.add_class("no-padding");
         if (displaypages[i] == logpage) {
           button.set_sensitive(false);
         } else {
@@ -1622,6 +1643,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           });
           let style3 = button2.get_style_context();
           style3.add_class("flat");
+          style3.add_class("no-padding");
           button2.connect("clicked", () => {
             if (displaypages[i] == 1) {
               this.gotopagedialog(Math.ceil((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
@@ -1944,7 +1966,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       // Reset everything
       currentTimer = null;
       timerwidget = null;
-      this._startbutton.label = "Start";
+      this._starticon.set_icon_name("media-playback-start-symbolic");
       let style = this._startbutton.get_style_context();
       if (style.has_class("destructive-action")) {
         style.remove_class("destructive-action");
@@ -1996,16 +2018,16 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Start the timer
   startTimer(number, startDate) {
     logging = true;
-    this._startbutton.label = "Stop";
+    startedTime = startDate;
+    timer = setInterval(() => this.setTimerText(), 1000);
+    currentTimer = entries[number].ID;
+    this.setTimerText();
+    this._starticon.set_icon_name("media-playback-stop-symbolic");
     let style = this._startbutton.get_style_context();
     if (style.has_class("suggested-action")) {
       style.remove_class("suggested-action");
     }
     style.add_class("destructive-action");
-    startedTime = startDate;
-    this.setTimerText();
-    timer = setInterval(() => this.setTimerText(), 1000);
-    currentTimer = entries[number].ID;
     console.log("Started entry # " + number + ", ID is " + currentTimer);
   }
 
@@ -3896,7 +3918,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         spacing: 6,
       });
       const topbox = new Gtk.Box({
-        orientation: 0,
+        orientation: 1,
         spacing: 6,
       });
       box.append(topbox);
@@ -3906,8 +3928,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       box.append(bottombox);
       const buttonbox = new Gtk.Box({
-        orientation: 1,
-        spacing: 12,
+        orientation: 0,
+        spacing: 6,
         valign: 3,
       });
       const datebox = new Gtk.Box({
@@ -3940,8 +3962,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       const todaybutton = new Gtk.Button();
       const yesterdaybutton = new Gtk.Button();
 
-      const am = new Gtk.ToggleButton;
-      const pm = new Gtk.ToggleButton;
+      const am = new Gtk.ToggleButton();
+      const pm = new Gtk.ToggleButton();
       let timestyle = timebox.get_style_context();
       timestyle.add_class("linked");
       let datestyle = datebox.get_style_context();
@@ -4022,7 +4044,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       */
       secondentry.set_text(this.intto2digitstring(date.getSeconds()));
 
-      hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
+      hourminutelabel.label = "Hours & minutes, e.g., (\"1130\")";
 
       buttonbox.append(yesterdaybutton);
       buttonbox.append(todaybutton);
