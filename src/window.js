@@ -61,7 +61,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.0.3";
+let version = "2.1.0";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
@@ -159,7 +159,6 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Connecting with the gsettings for Time Tracker
   _settings = new Gio.Settings({ schemaId: 'com.lynnmichaelmartin.TimeTracker' });
-  //_window_decorations = new Gio.Settings({ schemaId: 'org.gnome.desktop.wm.preferences' });
 
   constructor(application) {
     super({ application });
@@ -171,27 +170,17 @@ export const TimeTrackerWindow = GObject.registerClass({
         "window-height", this, "default-height", Gio.SettingsBindFlags.DEFAULT);
     this._settings.bind(
         "window-maximized", this, "maximized", Gio.SettingsBindFlags.DEFAULT);
-    
-    /* Doesn't seem to work for some reason
-    console.log(this._window_decorations.get_string("button-layout"));
-    if (this._window_decorations.get_string("button-layout").includes("minimize") && this._window_decorations.get_string("button-layout").includes("maximize")) {
-      console.log("Moving menu to accommodate window decorations.");
-      this._menu.unparent();
-      this._controls.add(this._menu);
-    }
-    */
 
     // Get the version history gsetting and call the versioning() function in case something should be done depending on the former version
     this.versioning(this._settings.get_string("version"));
-
-    // If we need to reset the reports gsetting to default
-    //this._settings.set_string("reports", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````project`billed`/~/`Last Week`week-1`week-1`````project`billed');
 
     // Read reports setting from gsettings
     let reportsetting = this._settings.get_string("reports");
     if (reportsetting.indexOf("`") > -1) {
       reports = reports.concat(this.settingstoreports(reportsetting));
     }
+    
+    console.log(this._settings.get_int("window-width"));
 
     // Applying the custom settings
     this.firstdayofweek = this._settings.get_int("firstdayofweek");
@@ -265,7 +254,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       // When the selected project changes, change the project in the currently running entry, if any
       if (!nochange && selection && logging) {
         const value = selection.value;
-        //console.log(value, entries[this.currentTimer()].meta);
         this.editrunningentrybyIndex(value, entries[this.currentTimer()].meta);
       }
     });
@@ -281,7 +269,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     });
 
-    // Defining the model for the log
+    /* Defining the model for the log
     this.logmodel = new Gtk.StringList();
 
     // Defining the searching and filtering model
@@ -302,7 +290,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       incremental: true,
     });
     //this._list_box_editable.bind_model(filter_model, this.createItemForFilterModel);
-
+    */
 
     // Connecting the add entry button with the proper function
     this._add.connect("clicked", () => {
@@ -868,12 +856,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       } catch(_) {
         // user closed the dialog without selecting any file
-        /*
-        if (insist) {
-          // Don't let them get away without creating a log of some kind
-          this.firstusedialog();
-        }
-        */
       }
     });
   }
@@ -1602,57 +1584,68 @@ export const TimeTrackerWindow = GObject.registerClass({
       
       let numpages = Math.ceil(logdays.length / numberofdays);
       
-      // Allow 1, largest, five other pages, preferably with logpage in the middle
-      let displaypages = [0, numpages - 1];
-      if (logpage > 0 && logpage < numpages - 1) {
-        displaypages.push(logpage);
-      }
-      for (let i = 1; i < 6; i++) {
-        if (displaypages.length >= 5) {
-          break;
-        } else {
-          if (logpage - i > 1 && !displaypages.includes(logpage - i)) {
-            displaypages.push(logpage - i);
-          } if (logpage + i < numpages && !displaypages.includes(logpage + i)) {
-            displaypages.push(logpage + i);
+      if (numpages > 1) {
+        // Allow 1, largest, five other pages, preferably with logpage in the middle
+        let displaypages = [0, numpages - 1];
+        if (logpage > 0 && logpage < numpages - 1) {
+          displaypages.push(logpage);
+        }
+        for (let i = 1; i < 6; i++) {
+          if (displaypages.length >= 5) {
+            break;
+          } else {
+            if (logpage - i > 1 && !displaypages.includes(logpage - i)) {
+              displaypages.push(logpage - i);
+            } if (logpage + i < numpages && !displaypages.includes(logpage + i)) {
+              displaypages.push(logpage + i);
+            }
           }
         }
-      }
-      
-      displaypages.sort((a, b) => a - b);
-      
-      for (let i = 0; i < displaypages.length; i++) {
+        
+        displaypages.sort((a, b) => a - b);
+        
+        for (let i = 0; i < displaypages.length; i++) {
+          const button = new Gtk.Button({
+            label: (displaypages[i] + 1).toString(),
+          });
+          let style2 = button.get_style_context();
+          style2.add_class("flat");
+          style2.add_class("no-padding");
+          if (displaypages[i] == logpage) {
+            button.set_sensitive(false);
+          } else {
+            button.connect("clicked", () => {
+              logpage = displaypages[i];
+              this.loadnextpage();
+            });
+          }
+          this._logcontrols.append(button);
+          if (displaypages[i + 1] > displaypages[i] + 1) {
+            const button2 = new Gtk.Button({
+              label: ".",
+            });
+            let style3 = button2.get_style_context();
+            style3.add_class("flat");
+            style3.add_class("no-padding");
+            button2.connect("clicked", () => {
+              if (displaypages[i] == 1) {
+                this.gotopagedialog(Math.ceil((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
+              } else {
+                this.gotopagedialog(Math.floor((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
+              }
+            });
+            this._logcontrols.append(button2);
+          }
+        }
+      } else {
         const button = new Gtk.Button({
-          label: (displaypages[i] + 1).toString(),
+          label: "",
         });
         let style2 = button.get_style_context();
         style2.add_class("flat");
         style2.add_class("no-padding");
-        if (displaypages[i] == logpage) {
-          button.set_sensitive(false);
-        } else {
-          button.connect("clicked", () => {
-            logpage = displaypages[i];
-            this.loadnextpage();
-          });
-        }
+        button.set_sensitive(false);
         this._logcontrols.append(button);
-        if (displaypages[i + 1] > displaypages[i] + 1) {
-          const button2 = new Gtk.Button({
-            label: ".",
-          });
-          let style3 = button2.get_style_context();
-          style3.add_class("flat");
-          style3.add_class("no-padding");
-          button2.connect("clicked", () => {
-            if (displaypages[i] == 1) {
-              this.gotopagedialog(Math.ceil((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
-            } else {
-              this.gotopagedialog(Math.floor((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
-            }
-          });
-          this._logcontrols.append(button2);
-        }
       }
     } catch (e) {
       console.log(e);
@@ -1801,7 +1794,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.updatetotals();
     }
     
-    //!!!!
+    
     // this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
     this.updatelog();
     console.log("editentrybyIndex() is queuing a change to write out: " + writeout);
@@ -1844,7 +1837,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        //!!!!
+        
         //this.logmodel.splice(0, 0, [new_item]);
         this.startTimer(entries.length - 1, startDate);
         this.updatelog();
@@ -1853,7 +1846,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        //!!!!
+        
         //this.logmodel.splice(0, 0, [new_item]);
         this.updatelog();
         this.updatetotals();
@@ -1867,7 +1860,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        //!!!!
+        
         //this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
         this.updatelog();
         this.startTimer(entries.length - 1, startDate);
@@ -2039,16 +2032,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     seconds = seconds - (minutes * 60);
 
     return this.intto2digitstring(hours) + ":" + this.intto2digitstring(minutes) + ":" + this.intto2digitstring(seconds);
-  }
-
-  // If needed, display an alert window. This should be deprecated at some point
-  async alert(toShow) {
-    const dialog = new Adw.AlertDialog({
-      body: toShow,
-    });
-    dialog.add_response("ok", "OK");
-    const response = await dialog.choose(this, null, null);
-    return response;
   }
 
   // Update the reports
@@ -2855,26 +2838,16 @@ export const TimeTrackerWindow = GObject.registerClass({
     let theproject = entries[index].project;
     let billed = entries[index].billed;
     let meta = entries[index].meta;
-    /*
-    console.log("Filter start: " + startDate);
-    console.log("Entry start: " + start);
-    console.log("Filter end: " + endDate);
-    console.log("Entry end: " + end);
-    */
+
     // Edit the entry to match ((startDate && start < startDate) || (endDate && ((!end && now > endDate) || end > endDate)))
     const now = new Date();
     if (startDate && start < startDate) {
-      //console.log("Entry starts before filter. New start date: " + startDate);
-      //console.log(entries[index]);
       await this.editentrybyIndex(index, theproject, startDate, end, billed, meta);
-      //console.log(entries[index]);
       await this.addentry(theproject, meta, start, new Date(startDate.getTime() - 1), billed, true, 0, index);
-      //console.log(entries[index]);
       index += 1;
       start = startDate;
     }
     if (endDate && (end > endDate || (!end && now > endDate))) {
-      //console.log("Entry ends after filter");
       await this.editentrybyIndex(index, theproject, start, endDate, billed, meta);
       await this.addentry(theproject, meta, new Date(endDate.getTime() + 1), end, billed, true, 0, index + 1);
     }
@@ -3363,9 +3336,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         close_response: "cancel",
       });
       dialog.add_response("cancel", "Cancel");
-      //dialog.add_response("delete", "Delete");
       dialog.add_response("okay", "OK");
-      //dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
       const box = new Gtk.Box({
@@ -4103,6 +4074,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           chosendate.setFullYear(yearspin.get_text());
           // This line MUST follow month and year, since otherwise, a day of greater value than the chosendate's original month's number of days could cause a problem.
           chosendate.setDate(dayspin.get_value());
+          
           chosendate.setHours(hour);
           chosendate.setMinutes(minute);
           chosendate.setSeconds(parseInt(secondentry.get_text()));
@@ -4295,7 +4267,6 @@ export const TimeTrackerWindow = GObject.registerClass({
           } else {
             // This is a deleted entry
             if (entry.end) {
-              //console.log("Has date");
               // Remove any old deletions
               // Create date that is two days ago
               let del = new Date();
@@ -4305,7 +4276,6 @@ export const TimeTrackerWindow = GObject.registerClass({
                 sync_extraentries.push({ID: entry.ID, end: entry.end});
               }
             } else {
-              //console.log("No date");
               // Assign the dateless deletion a date
               sync_extraentries.push({ID: entry.ID, end: new Date()});
             }
@@ -4313,7 +4283,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
         if (!merge) {
           // Set the visible log contents
-          //!!!!
           //this.logmodel.splice(0, modelLength, new_items);
           this.updatelog();
 
@@ -4331,7 +4300,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         } else {
           // Add to the visible log contents
-          //!!!!
+          
           //this.logmodel.splice(0, 0, new_items);
 
           if (!logging) {
@@ -4339,7 +4308,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (latestStartIndex > -1) {
               this.startTimer(latestStartIndex + modelLength, latestStartDate);
               // Set that entry as [logging]
-              //!!!!
+              
               //this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
             }
           } else {
@@ -4348,13 +4317,13 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (current) {
               if (entries[current].start < latestStartDate) {
                 // Set that entry as [???????]
-                //!!!!
+                
                 //this.logmodel.splice(entries.length - 1 - current, 1, ["[???????] | Project: " + entries[current].project]);
                 this.stopTimer();
 
                 this.startTimer(latestStartIndex + modelLength, latestStartDate);
                 // Set that entry as [logging]
-                //!!!!
+                
                 //this.logmodel.splice(entries.length - 1 - current, 1, ["[logging] | Project: " + entries[current].project]);
                 this.updatelog();
               }

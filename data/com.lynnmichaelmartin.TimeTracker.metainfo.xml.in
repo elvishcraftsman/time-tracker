@@ -10,8 +10,9 @@
   </developer>
   <launchable type="desktop-id">com.lynnmichaelmartin.TimeTracker.desktop</launchable>
 	<description>
-    <p>A simple time-tracker program for GNOME. Instead of using online-first options like Toggl and Clockify, use a lightning-fast local-first option that is still able to sync with multiple computers via cloud or network storage.</p>
-    <p>Time Tracker allows you to track different projects, see how much time you've spent on each project, and sync with a local file or a file in your own cloud storage. You can also open your sync file in spreadsheet software (since it's a CSV file).</p>
+    <p>A simple but powerful time-tracker program, built on GNOME technologies.</p>
+	  <p>Instead of using online-first options like Toggl and Clockify, use a lightning-fast, local-first option. Time Tracker can sync with multiple computers by using cloud or network storage.</p>
+    <p>Time Tracker allows you to track different projects, see how much time you’ve spent on each project, and sync with a local file or a file in your own cloud storage. You can also open your sync file in spreadsheet software (since it's a CSV file).</p>
 	</description>
   <screenshots>
     <screenshot type="default">
@@ -41,7 +42,7 @@
   </branding>
    <content_rating type="oars-1.1" />
   <releases>
-    <release version="2.0.3" date="2025-01-01">
+    <release version="2.1.0" date="2025-01-09">
     </release>
   </releases>
   <url type="homepage">https://github.com/elvishcraftsman/time-tracker</url>
