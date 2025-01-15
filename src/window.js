@@ -1,7 +1,5 @@
 // Welcome to Time Tracker, a project licensed under the MIT-0 no attribution license.
 
-// Handy page for styling info: https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/style-classes.html
-
 // Perform the necessary imports
 import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk';
@@ -35,38 +33,47 @@ Gio._promisify(Gio.File.prototype,
 let logging = false; // Is the timer currently logging time?
 let timer; // The timer for displaying the amount of time in the currently logging entry
 let sync_timer; // The sync timer
-let startedTime = new Date();
-let entries = [];
-let projects = [];
-let logpath = "";
-let addprojectsfromlog = true;
-let totalString = "";
-let currentTimer = null;
-let changestobemade = false;
-let ampmformat = true;
-let nochange = false;
-let sync_interval = 1000;
-let tick = 0;
-let nexttick = 0;
-let sync_operation = 0; // Is a current operation trying to sync?
-let sync_changes = []; // Changes to be synced
-// type, project, start, stop, ID, oldproject, oldstart, oldstop, undone
-let sync_extraentries = []; // Entries not to be read into entries array, but to be written to the log file
-let sync_firsttime = true;
-let sync_templogpath = "";
-let sync_autotemplog = false;
-let sync_fullstop = false;
-let filelost = false;
+let startedTime = new Date(); // The time that the current logging timer started
+let entries = []; // The time entries to be displayed and reported on
+let projects = []; // The list of projects
+let logpath = ""; // The file path of the time log
+let addprojectsfromlog = true; // Whether to add new projects when reading a log with projects not in the settings
+let currentTimer = null; // The ID of the entry that is currently logging time
+let changestobemade = false; // If true, signifies that there are unwritten changes to be written out
+let ampmformat = true; // Use AM/PM rather than 24hr time?
+let nochange = false; // True when changing projectlist selection, but no change is to be made to an entry
+let sync_interval = 1000; // How often to sync to the file, in milliseconds. 1000 seems to work well
+let tick = 0; // How many sync checks (ticks) have happened since a certain event
+let nexttick = 0; // Which sync check (tick) should be the time when a certain event occurs
+
+// This array is all the changes that have been made. It's mostly useful for undo/redo.
+// change, project, start, stop, ID, oldproject, oldstart, oldstop, undone
+let sync_changes = [];
+
+// Entries not to be read into entries array, but to be written to the log file
+// This is for deleted entries
+let sync_extraentries = [];
+
+let sync_firsttime = true; // Is this the first time we're syncing with this log file?
+let sync_templogpath = ""; // If the log can't be found, this is the temporary log path
+let sync_autotemplog = false; // Should we automatically sync to a temporary log?
+let sync_fullstop = false; // Should the timer be stopped rather than paused?
+let filelost = false; // Has the log been lost?
+
+// An array that stores the names of any extra columns in the CSV file that TT doesn't use
+// These columns are added to each entry in `entries`, so that they aren't lost when writing out
 let sync_extracolumns = [];
+
+// An array of report objects to show what preset reports to display
+// The first item is always the Custom report, displayed at the bottom of the page
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
-let nav_pages = [];
-let nav_current = 0;
-let version = "2.1.0";
-let dialogsopen = 0;
-let logdays = [];
-let numberofdays = 7;
-let logpage = 0;
-let timerwidget;
+
+let version = "2.1.0"; // The current version of Time Tracker, so that we know when a version change has happened
+let dialogsopen = 0; // How many dialogs are currently open (so that we know when there are none open)
+let logdays = []; // Dividing the entries to be displayed into an array of the days they were recorded on
+let numberofdays = 7; // How many days of entries to show in each page of the log view
+let logpage = 0; // Which page of the log we are viewing. Starts at 0, but user-facing number is +1
+let timerwidget; // The ActionRow that is displaying the entry that is currently being logged to
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -179,8 +186,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     if (reportsetting.indexOf("`") > -1) {
       reports = reports.concat(this.settingstoreports(reportsetting));
     }
-    
-    console.log(this._settings.get_int("window-width"));
 
     // Applying the custom settings
     this.firstdayofweek = this._settings.get_int("firstdayofweek");
@@ -189,10 +194,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     ampmformat = this._settings.get_boolean("ampmformat");
     sync_autotemplog = this._settings.get_boolean("autotemplog");
     logpath = this._settings.get_string("log");
+    
+    // Setting the project list
     const projectsSetting = this._settings.get_string("projects");
     try {
       this.setprojects(projectsSetting.split("`"));
     } catch (_) {
+      // There aren't any projects
       this.setprojects();
     }
 
@@ -269,29 +277,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     });
 
-    /* Defining the model for the log
-    this.logmodel = new Gtk.StringList();
-
-    // Defining the searching and filtering model
-    // {{{ some of this code can be removed
-    const search_expression = Gtk.PropertyExpression.new(
-      Gtk.StringObject,
-      null,
-      "string",
-    );
-    const filter = new Gtk.StringFilter({
-      expression: search_expression,
-      ignore_case: true,
-      match_mode: Gtk.StringFilterMatchMode.SUBSTRING,
-    });
-    const filter_model = new Gtk.FilterListModel({
-      model: this.logmodel,
-      filter: filter,
-      incremental: true,
-    });
-    //this._list_box_editable.bind_model(filter_model, this.createItemForFilterModel);
-    */
-
     // Connecting the add entry button with the proper function
     this._add.connect("clicked", () => {
       this.editentrydialog();
@@ -301,18 +286,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     const controls = this.reportcontrols(reports[0]);
     this._reportcontrols.append(controls);
 
-    // Opening edit/delete dialog when a log row is selected
-    /*
-    this._list_box_editable.connect("row-selected", () => {
-      const selectedRow = this._list_box_editable.get_selected_row();
-      if (selectedRow) {
-        const index = selectedRow.get_index();
-        this._list_box_editable.unselect_all();
-        this.editentrydialog(entries.length - 1 - index);
-      }
-    });
-    */
-
     // Connecting the preferences button with the proper function
     const prefsAction = new Gio.SimpleAction({name: 'preferences'});
     prefsAction.connect('activate', async () => {
@@ -320,7 +293,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         //this.preferencesdialog();
         const prefs = new PreferencesWindow;
         prefs.connect("close-request", () => {
-          this.updatetotals();
+          this.updatereports();
         });
         prefs.present();
       } catch (e) {
@@ -334,12 +307,15 @@ export const TimeTrackerWindow = GObject.registerClass({
       try {
         // Make it possible to close the window by disconnecting the closehandler
         this.disconnect(this.closehandler);
+        
         // Sync any last-minute changes
         if (changestobemade) {
           changestobemade = false;
           await this.writelog();
         }
-        setInterval(() => {this.close()}, 10); // Call something else that will actually close the window
+        
+        // Call something else that will actually close the window, since this block can't
+        setInterval(() => {this.close()}, 10);
       } catch (e) {
         console.log(e);
       }
@@ -350,9 +326,12 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.firstusedialog();
     } else {
       const file = Gio.File.new_for_path(logpath);
+      
+      // Can we find that file?
       if (file.query_exists(null)) {
         this.readfromfile_sync();
       } else {
+        // File has been lost
         filelost = true;
         if (sync_autotemplog) {
           this.settempfile();
@@ -361,20 +340,29 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
     }
-    this._newbutton.connect("clicked", () => {
-      this.newlog(true);
-    });
-    this._openbutton.connect("clicked", () => {
-      this.openlog(true);
-    });
-    this._systembutton.connect("clicked", () => {
-      this.usesystemfolder();
-      this.closefirstusedialog();
-    });
+    
+    // The following code should be moved into a function
+    
+        // Connect the "new log" button
+        this._newbutton.connect("clicked", () => {
+          this.newlog(true);
+        });
+        
+        // Connect the "open log" button
+        this._openbutton.connect("clicked", () => {
+          this.openlog(true);
+        });
+        
+        // Connect the "system log" button
+        this._systembutton.connect("clicked", () => {
+          this.usesystemfolder();
+          this.closefirstusedialog();
+        });
 
     // All done constructing the window!
   }
 
+  // Welcome the user to this version (in the console)
   // Do any code that should happen if this is the first time opening Time Tracker in the current version
   versioning(versions) {
     try {
@@ -386,8 +374,15 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (lastversion != version) {
         // Set the current version as the latest version
         this._settings.set_string("version", versions + ">" + version);
-        // Now, execute any further code that we need to
+        
+        /*  
+            Now, execute any further code that we need to
+            This is where backwards-compatibility functions should be called
+        */
+        
       }
+      
+      // Write out the different versions that this installation has gone through
       console.log("Version history for this installation of Time Tracker: " + versions + ".");
     } catch (e) {
       console.log(e);
@@ -397,22 +392,34 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Read the reports gsetting into the reports[] array
   settingstoreports(setting) {
     let outputArray = [];
+    
+    // Separate out the different reports
     let reportsArray = setting.split("`/~/`");
+    
+    // Read the settings for each report
     for (let i = 0; i < reportsArray.length; i++) {
       try {
         let input = reportsArray[i].split("`");
         let output = {};
+        
+        // Title
         output.title = input[0];
+        
+        // Start date
         if (input[1].startsWith('day') || input[1].startsWith('week') || input[1].startsWith('month') || input[1].startsWith('year')) {
           output.start = input[1];
         } else {
           output.start = new Date(input[1]);
         }
+        
+        // End date
         if (input[2].startsWith('day') || input[2].startsWith('week') || input[2].startsWith('month') || input[2].startsWith('year')) {
           output.end = input[2];
         } else {
           output.end = new Date(input[2]);
         }
+        
+        // Filters
         if (input[3] != "") {
           output.filters = {project: input[3]};
         } else {
@@ -435,6 +442,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         } else {
           output.filters.client = null;
         }
+        
+        // Groups
         output.groupby = [];
         for (let j = 7; j < input.length; j++) {
           output.groupby.push(input[j]);
@@ -449,15 +458,19 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Make the reports[] array able to be written out to a string gsetting
   reportstosettings(reportsArray) {
     let output = "";
+    
     for (let i = 0; i < reportsArray.length; i++) {
       try {
         let report = reportsArray[i];
+        
         output += report.title;
         output += "`"
         output += report.start.toString();
         output += "`"
         output += report.end.toString();
         output += "`"
+        
+        // Filters
         if (report.filters.project) {
           output += report.filters.project;
         }
@@ -473,13 +486,17 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (report.filters.client) {
           output += report.filters.client;
         }
+        
+        // Groups
         for (let j = 0; j < report.groupby.length; j++) {
           output+= "`" + report.groupby[j];
         }
+        
+        // Add separator
         if (i < reportsArray.length - 1) {
           output+= "`/~/`"
         }
-      } catch (_) {}
+      } catch (_) {} // !!! Wonder why I'm not looking for errors. Probably a reason.
     }
     return output;
   }
@@ -487,25 +504,32 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Undo the last user action
   async undo() {
     try {
-      // Find last undefined or false .undone in sync_changes
+      // Find last item with undefined or false `undone` property in sync_changes
+      // But don't undo things if a dialog box is open! The user probably doesn't intend to.
       if (dialogsopen < 1 && sync_changes.length > 0) {
+      
         for (let i = sync_changes.length - 1; i > -1; i--) {
+        
           if (!sync_changes[i].undone) {
             console.log("Undoing");
             let change = sync_changes[i];
             // Undo that item
             if (change.change == "delete" || change.change == "edit") {
+              // Change was an edit or a deletion, changing back is an edit
               this.editentrybyID(change.ID, change.oldproject, change.oldstart, change.oldend, change.oldbilled, change.oldmeta);
             } else {
               // Change was an addition
               this.removeentrybyID(change.ID);
             }
-            // Set that item as .undone = true
+            // Set that item's `undone` property to true, for the sake of later undo/redo actions
             sync_changes[i].undone = true;
 
             if (logging) {
+              // Set the project and description fields in the timer
               this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
             }
+            
+            // Stop looking for more changes, since we've now fulfilled the user's request
             break;
           }
         }
@@ -515,14 +539,20 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // !!!! This function needs better code comments - not sure I understand it anymore, though it seems to work
   // Redo the last user action
   async redo() {
     try {
-      // Find .undone = true item immediately following last undefined or false .undone in sync_changes
+      // Find the item in sync_changes with the property `undone` = true that immediately follows the last item with undefined or false `undone` property
       if (dialogsopen < 1 && sync_changes.length > 0) {
+      
         for (let i = sync_changes.length - 1; i > -1; i--) {
+        
+          // If (this item hasn't been undone & it's not the last item) or (this item has been undone and it is the first item) - I think
+          // We're checking to find the earliest item that has been undone - I think
           if ((!sync_changes[i].undone && i < sync_changes.length - 1) || (sync_changes[i].undone && i == 0)) {
             console.log("Redoing");
+            
             let j = i;
             if (!sync_changes[i].undone) {
               j += 1;
@@ -549,6 +579,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // Read from the file, and then start the sync timer when that is done.
   async readfromfile_sync() {
     await this.readfromfile();
     // Start sync timer
@@ -557,24 +588,15 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // The function to sync with the log file
   async sync() {
-    /* Currently, the sync function works like this:
-        - If there are backups to be run, make the backup
-        - If there are any changes to be made to the log, make the changes
-        - If not, read the file to see if any changes were made in the file
-       In future, it will do this instead:
-        - If there are backups to be run, make the backup
-        - Read the file to see if any changes were made in the file
-        - (In a different function) If this loses any information that was
-          just written to the file or was not yet written to the file, then
-          write those changes to the file.
-    */
     try {
-    // Stop sync timer
+    // Stop sync timer, so that nothing happens while we're in the middle of the process
     clearInterval(sync_timer);
 
+    // Let the program know another sync operation has happened
     tick += 1;
     // Run backups
     try {
+      // If we've reached the proper time
       if (tick >= nexttick) {
         // Set up tomorrow's backup at 1 AM if the program isn't closed
         const now = new Date();
@@ -588,23 +610,24 @@ export const TimeTrackerWindow = GObject.registerClass({
         this.runbackups();
 
         // Redo reports
-        this.updatetotals();
+        this.updatereports();
       }
     } catch (_) {
       // Backups failed
     }
 
+    // I have some ideas for making TT more resilient by performing a check of whether recent changes are still kept by the file, but they don't seem to be needed
     // If there are any changes to write out, write them out
     if (changestobemade) {
       console.log("Sync has detected changes to be made: " + changestobemade);
       changestobemade = false;
       await this.writelog();
     } else {
-      // Sync to the file
+      // If there aren't changes to be made, read the file
       await this.readfromfile();
     }
 
-    // Start sync timer
+    // Start sync timer again
     this.resetsynctimer();
     } catch (e) {
       console.log(e);
@@ -616,58 +639,56 @@ export const TimeTrackerWindow = GObject.registerClass({
     console.log("Creating new log file");
     const fileDialog = new Gtk.FileDialog();
 
-    // Add filters
-    const fileFilter1 = new Gtk.FileFilter();
-    fileFilter1.add_suffix("csv");
-    fileFilter1.set_name("Comma-Separated Values");
-    const fileFilter2 = new Gtk.FileFilter();
-    fileFilter2.add_pattern("*");
-    fileFilter2.set_name("All Files");
-    const filterlist = new Gio.ListStore({ item_type: Gtk.FileFilter });
-    filterlist.append(fileFilter1);
-    filterlist.append(fileFilter2);
-    fileDialog.set_filters(filterlist);
-    fileDialog.set_initial_name("time log");
+    // Add filters so that it selects for CSV files, but can be opened for all files in the dropdown
+    fileDialog.set_filters(this.filterlist());
+    
+    // Set the default file name
+    fileDialog.set_initial_name("time-tracker-log");
 
+    // Show the save dialog
     fileDialog.save(this, null, async (self, result) => {
       try {
         const file = self.save_finish(result);
 
         if (file) {
-
+          // Stop syncing before anything else happens
           this.stopsynctimer()
+          
+          // Set the new log file path
           logpath = file.get_path();
 
-          // Default to CSV suffix if none chosen
+          // Give it the `.csv` file suffix if no suffix has been given
           const basename = file.get_basename();
           if (basename.split(".").length < 2) {
             logpath += ".csv";
           }
 
+          // Save the log file path to gsettings
           this._settings.set_string("log", logpath);
 
+          // Go to the dialog that checks if we want to keep any entries that we currently have
           this.savedialog();
+          
+          // If it was necessary for us to come away with a chosen file, let the firstusedialog know that one was chosen, so it can stop insisting on the need for one and close
           if (insist) {
             this.closefirstusedialog();
           }
-
         }
       } catch(_) {
         // user closed the dialog without selecting any file
-        /*
-        if (insist) {
-          // Don't let them get away without creating a log of some kind
-          this.firstusedialog();
-        }
-        */
       }
     });
   }
 
+  // When creating a new log, this is called (maybe another time too)
+  // Check to see if there are any entries, and if so, ask if the user wants to save them to the new file before actually creating the new file
   async savedialog() {
     try {
+      // Is this needed? !!!!
       filelost = false;
+      
       if (entries.length > 0) {
+        // If there are any entries, ask whether they should be saved
         const dialog = new Adw.AlertDialog({
           heading: "Save or New?",
           body: "You currently have time entries in your log. Do you want to save " +
@@ -676,39 +697,60 @@ export const TimeTrackerWindow = GObject.registerClass({
         });
         dialog.add_response("new", "Start Over");
         dialog.add_response("save", "Save My Data");
+        
+        // Connect the dialog response
         dialog.connect("response", async (_, response_id) => {
           dialogsopen -= 1;
           try {
             const file = Gio.File.new_for_path(logpath);
+            
+            // If we don't want to save the data
             if (response_id === "new") {
-              // If the file exists
               if (!file.query_exists(null)) {
+                // If the file doesn't exist, create it
                 await this.createfile(logpath);
               } else {
+                // If the file exists, overwrite it and empty it
                 await this.writetofile(logpath, "Project,Start,End,ID");
               }
+              // The next sync will be the first time a sync is happening for this file
               sync_firsttime = true;
+              
               // Empty sync_extracolumns
               sync_extracolumns = [];
+              
+              // Empty the entries (Why couldn't we just empty it here rather than calling this function? Probably some reason)
               await this.setentries([]);
             } else {
+              // If we do want to save the data
               if (!file.query_exists(null)) {
+                // If the file doesn't exist, create it
                 await this.createfile(logpath);
               }
+              // Save the data
               await this.writelog();
             }
-            // Set up sync timer
+            
+            // Start the sync timer going
             this.setsynctimer();
           } catch (e) {
             console.log(e);
           }
         });
+        
+        // Present the dialog
         dialog.present(this);
         dialogsopen += 1;
       } else {
-        await this.createfile(logpath);
+        // If there are no entries
+        if (!file.query_exists(null)) {
+          // If the file doesn't exist, create it
+          await this.createfile(logpath);
+        }
+        // Save the data
         await this.writelog();
-        // Set up sync timer
+        
+        // Start the sync timer going
         this.setsynctimer();
       }
     } catch (e) {
@@ -716,31 +758,50 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  // This should be called whenever a new file is opened
+  // This function starts the sync timer for the first time for a file
+  // It should be called whenever a new file is opened. Otherwise, call `resetsynctimer()`
   setsynctimer() {
+    // Set this as false so that the function isn't called at next sync
     sync_fullstop = false;
+    
+    // Stop the timer in case it's going
     if (sync_timer !== null) {
       clearInterval(sync_timer);
     }
+    
+    // Reset things
     sync_firsttime = false;
     tick = 0;
-    nexttick = 300000 / sync_interval; // The next time to check for daily activities (5 min from now)
+    
+    // The next time to check for daily activities (5 min from now)
+    nexttick = 300000 / sync_interval;
+    
+    // Start the timer
     sync_timer = setInterval(() => this.sync(), sync_interval);
+    
     console.log("Syncing has been initiated.");
   }
 
   // This should be called whenever a read or write is completed
   resetsynctimer() {
+    // Only reset timer if we haven't been told to stop syncing
     if (!sync_fullstop) {
+      // Stop the timer in case it's going
       if (sync_timer !== null) {
         clearInterval(sync_timer);
       }
+      
+      // Start the timer
       sync_timer = setInterval(() => this.sync(), sync_interval);
     }
   }
 
+  // This method stops the timer, rather than pauses it
   stopsynctimer() {
+    // Let everybody know that the timer is supposed to be completely stopped
     sync_fullstop = true;
+    
+    // Stop the timer completely
     if (sync_timer !== null) {
       clearInterval(sync_timer);
       sync_timer = null;
@@ -749,20 +810,12 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async importlog() {
-    console.log("Importing existing log file");   // Create a new file selection dialog
+    console.log("Importing existing log file");
+    // Create a new file selection dialog
     const fileDialog = new Gtk.FileDialog();
 
-    // Add filters
-    const fileFilter1 = new Gtk.FileFilter();
-    fileFilter1.add_suffix("csv");
-    fileFilter1.set_name("Comma-Separated Values");
-    const fileFilter2 = new Gtk.FileFilter();
-    fileFilter2.add_pattern("*");
-    fileFilter2.set_name("All Files");
-    const filterlist = new Gio.ListStore({ item_type: Gtk.FileFilter });
-    filterlist.append(fileFilter1);
-    filterlist.append(fileFilter2);
-    fileDialog.set_filters(filterlist);
+    // Add filters so that it selects for CSV files, but can be opened for all files in the dropdown
+    fileDialog.set_filters(this.filterlist());
 
     // Open the dialog and handle user's selection
     fileDialog.open(this, null, async (self, result) => {
@@ -770,6 +823,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         const file = self.open_finish(result);
 
         if (file) {
+          // Merge the two logs
           this.mergelogs(logpath, file.get_path());
         }
       } catch(_) {
@@ -778,48 +832,50 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
   }
 
-  // log2 is the log that will be merged into log1, the main log.
-  // If keeporiginal = true, the values in log1 will be kept where log2 differs
+  /*  This method merges two logs together and considers the result to be the current 
+      log. `log2` will be merged into `log1`, which will become or remain the main log.
+      By default, values of entries in log1 whose IDs are also found in log2 will be 
+      overwritten by those in log2. But if keeporiginal = true, the values in log1 
+      will be kept where log2 differs.
+  */
   async mergelogs(log1, log2, keeporiginal = false) {
-    if (log1 != log2) {
-      console.log("Merging " + log1 + " and " + log2);
+    try {
+      if (log1 != log2) {
+        console.log("Merging " + log1 + " and " + log2);
 
-      // Read log2 as new
-      // Make sure it resets everything when reading the new file
-      sync_firsttime = true;
-      // Empty sync_extracolumns
-      sync_extracolumns = [];
+        // Make sure it resets everything when reading the new file
+        sync_firsttime = true;
+        // Empty sync_extracolumns
+        sync_extracolumns = [];
 
-      if (!keeporiginal) {
-        // Read log1 as original
-        await this.readfromfile(log1);
-        // Read log2 as merge
-        await this.readfromfile(log2, true);
+        if (!keeporiginal) {
+          // Read log1
+          await this.readfromfile(log1);
+          // Merge in log2 as merge, using it to overwrite matching IDs in log1
+          await this.readfromfile(log2, true);
+        } else {
+          // Read log2
+          await this.readfromfile(log2);
+          // Merge in log1 as merge, using it to overwrite matching IDs in log2
+          await this.readfromfile(log1, true);
+        }
+
+        // Set logpath to log1 and save
+        logpath = log1;
+        await this.writelog();
+        
+        // Start sync timer
+        this.setsynctimer();
       } else {
-        // Read log2 as original
-        await this.readfromfile(log2);
-        // Read log1 as merge
-        await this.readfromfile(log1, true);
+        console.log("Cannot merge the same file");
       }
-
-      // Set logpath to log1 and save
-      logpath = log1;
-      await this.writelog();
-      // Start sync timer
-      this.setsynctimer();
-
-    } else {
-      console.log("Cannot merge the same file");
+    } catch (e) {
+      console.log(e);
     }
   }
-
-  // Present a dialog for opening an existing log file
-  // insist is whether the openlog should insist on returning a file
-  async openlog(insist = false) {
-    console.log("Opening existing log file");   // Create a new file selection dialog
-    const fileDialog = new Gtk.FileDialog();
-
-    // Add filters
+  
+  // Create list of filters for Gtk.FileDialog() so that it selects for CSV files, but can be opened for all files in the dropdown
+  filterlist() {
     const fileFilter1 = new Gtk.FileFilter();
     fileFilter1.add_suffix("csv");
     fileFilter1.set_name("Comma-Separated Values");
@@ -829,7 +885,18 @@ export const TimeTrackerWindow = GObject.registerClass({
     const filterlist = new Gio.ListStore({ item_type: Gtk.FileFilter });
     filterlist.append(fileFilter1);
     filterlist.append(fileFilter2);
-    fileDialog.set_filters(filterlist);
+    return filterlist;
+  }
+
+  // Present a dialog for opening an existing log file
+  // insist is whether the openlog should insist on returning a file
+  async openlog(insist = false) {
+    console.log("Opening existing log file");
+    // Create a new file selection dialog
+    const fileDialog = new Gtk.FileDialog();
+
+    // Add filters so that it selects for CSV files, but can be opened for all files in the dropdown
+    fileDialog.set_filters(this.filterlist());
 
     // Open the dialog and handle user's selection
     fileDialog.open(this, null, async (self, result) => {
@@ -837,19 +904,24 @@ export const TimeTrackerWindow = GObject.registerClass({
         const file = self.open_finish(result);
 
         if (file) {
-
           this.stopsynctimer()
           logpath = file.get_path();
+          
           // Make sure it resets everything when reading the new file
           sync_firsttime = true;
-          // Empty sync_extracolumns
           sync_extracolumns = [];
           filelost = false;
+          
+          // Read the file
           await this.readfromfile();
+          
           // Start sync timer
           this.setsynctimer();
+          
+          // Write out new log path to gsettings
           this._settings.set_string("log", logpath);
 
+          // If it was necessary for us to come away with a chosen file, let the firstusedialog know that one was chosen, so it can stop insisting on the need for one and close
           if (insist) {
             this.closefirstusedialog();
           }
@@ -860,17 +932,21 @@ export const TimeTrackerWindow = GObject.registerClass({
     });
   }
 
-  // Convert the log array into CSV format
+  // Convert the log array into CSV format and call a method to write it to the log file
+  // `notify` is whether the console.log should be notified
   async writelog(filepath = logpath, filteredentries = null, notify = true) {
     try {
+      // Define the string to be written, and add the header row
       let entriesString = "Project,Start Time,End Time,Description,ID,Duration (Readable),Duration (Seconds),Billed";
-
+      
+      // Supplement the header row with any extra columns that TT doesn't use
       if (sync_extracolumns.length > 0) {
         for (let i = 0; i < sync_extracolumns.length; i++) {
           entriesString += "," + this.addquotes(sync_extracolumns[i]);
         }
       }
 
+      // Go through each entry
       for (let i = 0; i < entries.length; i++) {
         let project = "";
         let start = "";
@@ -881,6 +957,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         let ID = 0;
         let billed = false;
         try {
+          // Dates and duration
           let startDate = entries[i].start;
           start = startDate.toString();
           let endDate = entries[i].end;
@@ -891,11 +968,13 @@ export const TimeTrackerWindow = GObject.registerClass({
           } else {
             end = "";
           }
+          // ID, project, billed
           ID = entries[i].ID;
           project = this.addquotes(entries[i].project);
           if (entries[i].billed == true) {
             billed = true;
           }
+          // Description
           if (entries[i].meta) {
             meta = entries[i].meta;
           }
@@ -904,8 +983,11 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
         if (filteredentries == null) {
+          // If we have NOT been given a set of entries to be the ones to write out
+          // Add this entry to `entriesString`
           entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
 
+          // Add any info from extra columns
           if (sync_extracolumns.length > 0) {
             for (let j = 0; j < sync_extracolumns.length; j++) {
               entriesString += ",";
@@ -915,11 +997,14 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
           }
         } else {
+          // If we HAVE been given a set of entries to be the ones to write out
+          // Check to see if this entry should be added to `entriesString`
           const foundItem = filteredentries.find(item => item.ID === ID);
           if (foundItem) {
             // Same code as above, redundant for speed purposes
             entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
 
+            // Add any info from extra columns
             if (sync_extracolumns.length > 0) {
               for (let j = 0; j < sync_extracolumns.length; j++) {
                 entriesString += ",";
@@ -932,26 +1017,36 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
 
+      // If there are any extra entries not in `entries` (would be the case for deleted entries)
       if (sync_extraentries.length > 0 && filteredentries == null) {
         for (let i = 0; i < sync_extraentries.length; i++) {
           let ID = sync_extraentries[i].ID;
+          // TT uses the "end" property as the date of deletion
           let deletedate = sync_extraentries[i].end;
           entriesString += '\n,deleted,' + deletedate.toString() +',,' + ID.toString() + ",,,";
+          if (sync_extracolumns.length > 0) {
+            for (let j = 0; j < sync_extracolumns.length; j++) {
+              entriesString += ",";
+            }
+          }
         }
       }
 
       const file = Gio.File.new_for_path(filepath);
 
-      // If the file exists
       if (file.query_exists(null)) {
+        // If the file exists
         if (filepath != logpath || !filelost) {
+          // If the filepath argument is not the regular log, or if it is, but the log has not been marked as "lost"
+          // Write out to the file that was chosen, whether that's the log file or not
           this.writetofile(filepath, entriesString, notify);
-        } else if (filepath == logpath && filelost) {
-          // Now that the log is found again
+        } else {
+          // Used to say `else if (filepath == logpath && filelost)` but I think that's redundant
+          // This means that the log "was lost, and is found" (see Luke 15:32)
           await this.prodigal();
         }
       } else {
-        // The file does not exist
+        // The file does not exist; it's been lost. So we need to call this method that will take care of things
         await this.lostlog(entriesString);
       }
     } catch (e) {
@@ -959,7 +1054,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  // Add quotes appropriately for CSV format
+  // Adds quotes appropriately for CSV format, but only if they are needed
   addquotes(text) {
     if (typeof text === 'string' && (text.includes('"') || text.includes('\n') || text.includes(','))) {
       text = '"' + text.replace(/"/g, '""') + '"';
@@ -967,26 +1062,24 @@ export const TimeTrackerWindow = GObject.registerClass({
     return text;
   }
 
+  // This writes any text out to any file
+  // `notify` is whether the console.log should be notified
   async writetofile(filepath, text, notify = true) {
     try {
       const file = Gio.File.new_for_path(filepath);
       console.log("Writing to " + filepath);
-      //sync_operation = 2;
+      
       // Save the file (asynchronously)
       let contentsBytes = new GLib.Bytes(text)
-      await file.replace_contents_bytes_async(
-        contentsBytes,
-        null,
-        false,
-        Gio.FileCreateFlags.REPLACE_DESTINATION,
-        null);
+      await file.replace_contents_bytes_async(contentsBytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        
       if (notify) {
         console.log(`Saved to file ${filepath}`);
       }
     } catch (e) {
-      //sync_operation = 0;
       logError(`Unable to save to ${filepath}: ${e.message}`);
 
+      // Only notify of an error if we're writing to the regular log
       if (filepath == logpath) {
         if (notify) {
           this._toast_overlay.add_toast(Adw.Toast.new(`Failed to save to file ${filepath}`));
@@ -995,18 +1088,27 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // Returns the index of the current timer, which is normally specified by ID
+  currentTimer() {
+    let response = null;
+    const foundItem = entries.find(item => item.ID === currentTimer);
+    if (foundItem) {
+      response = entries.indexOf(foundItem);
+    }
+    return response;
+  }
+
+  // A wrapper for `removeentrybyIndex()` that translates ID to index
   // This is used when the system, rather than the user, is removing an entry
   // Therefore, it doesn't affect sync_changes the same way
   async removeentrybyID(ID) {
-    //console.log(ID);
-    //console.log(entries);
     const foundItem = entries.find(item => item.ID === ID);
     if (foundItem) {
-      //console.log(entries.indexOf(foundItem) + " " + foundItem);
       this.removeentrybyIndex(entries.indexOf(foundItem));
     }
   }
 
+  // A wrapper for `removeentrybyIndex()` that records the change in `sync_changes[]`
   async removeentry_user(number, writeout = true) {
     // Note the change in the sync_change array
     sync_changes.push({
@@ -1022,45 +1124,36 @@ export const TimeTrackerWindow = GObject.registerClass({
     this.removeentrybyIndex(number, writeout);
   }
 
-  // Finds the index of the current timer
-  currentTimer() {
-    let response = null;
-    const foundItem = entries.find(item => item.ID === currentTimer);
-    if (foundItem) {
-      response = entries.indexOf(foundItem);
-    }
-    return response;
-  }
-
   // Remove the given entry from the entries array and the log control
   async removeentrybyIndex(number, writeout = true) {
-    // Add it to the extraentries so that it isn't considered simply dropped
+    // Add it to `extraentries` so that it isn't considered as simply dropped
+    // Use the `end` property as the deleted date
     let del = new Date();
     sync_extraentries.push({ ID: entries[number].ID, end: del });
 
+    // Stop the timer if deleting it
     if (number == this.currentTimer()) {
       this.stopTimer();
     }
 
-    //currentTimer = entries[number].ID; //not sure what this was doing
-    console.log("Deleted entry # " + number + ", ID is " + entries[number].ID);
+    console.log("Deleted entry # " + number + ", ID is " + entries[number].ID + ". It is `" + 
+      writeout + "` that this will be written out to the log");
     
-    // !!!!
-    //this.logmodel.remove(entries.length - 1 - number);
-    
+    // Remove from `entries` and update the log view and the reports
     entries.splice(number, 1);
     this.updatelog();
+    this.updatereports();
 
-    console.log("removeentrybyIndex() is queuing a change to write out: " + writeout);
+    // Let sync know whether to sync this change to the log
     changestobemade = writeout;
-    this.updatetotals();
   }
 
-  // Stop the entry currently in the timer with the given end date
+  // Stop the entry currently in the timer, and give it the given end date
   async stoprunningentry(endDate) {
     try {
       let current = this.currentTimer();
-      console.log("Current timer is # " + current + ", ID: " + currentTimer);
+      console.log("Stopping current timer, index # " + current + ", ID: " + 
+        currentTimer + ". This will be written out to the log");
       if (current != null) { // Set as this rather than if (current), to fix a difference in the way Mint Cinnamon is parsing JS
         this.editentry_user(
           current,
@@ -1070,7 +1163,6 @@ export const TimeTrackerWindow = GObject.registerClass({
           entries[current].billed,
           entries[current].meta,
         );
-        console.log("stoprunningentry() is queuing a change to write out.");
         changestobemade = true;
       }
     } catch (e) {
@@ -1078,20 +1170,22 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  // Update the project of the currently running entry
+  // Update the project of the currently running entry, as a user action
+  // Functions as a wrapper for `editentry_user()`
   async editrunningentrybyIndex(theproject, meta) {
     let current = this.currentTimer();
-    //console.log(current);
     if (current != null) {
-      //Is this code needed? {{{
+      // In case the project is blank
       if (theproject == "") {
         theproject = entries[current].project;
       }
+      
       this.editentry_user(current, theproject, entries[current].start, null, entries[current].billed, meta);
     }
   }
 
   // The dialog to be used when a user wishes to add or edit an entry manually.
+  // Should be rewritten as a page !!!! and add code comments then
   // Use no arguments if adding an entry, if editing, give the index number
   async editentrydialog(ID = null, body = "") {
     try {
@@ -1121,8 +1215,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         billed = entry.billed;
         meta = entry.meta;
         dialog.heading = "Edit Entry";
-        //dialog.add_response("delete", "Delete");
-        //dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE);
       }
       dialog.add_response("okay", "OK");
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
@@ -1162,19 +1254,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       let timesstyle = box1.get_style_context();
       timesstyle.add_class("linked");
       box0.append(box1);
-
-      /*
-      const box2 = new Gtk.Box({
-        orientation: 1,
-      });
-      box0.append(box2);
-      */
-
-      /*
-      const endlabel = new Gtk.Label();
-      endlabel.label = "End Time";
-      box2.append(endlabel);
-      */
 
       const startb = new Gtk.Button();
       box1.append(startb);
@@ -1364,7 +1443,9 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
+      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
 
+      // Create outer frame, the TextView, and its buffer
       const frame = new Gtk.Frame();
       const view = new Gtk.TextView({
         editable: true,
@@ -1376,12 +1457,10 @@ export const TimeTrackerWindow = GObject.registerClass({
       const { buffer } = view;
       let editableProjects = projects.slice(1);
       buffer.set_text(editableProjects.join("\n"), -1);
-
       frame.set_child(view);
       dialog.set_extra_child(frame);
 
-      dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
-
+      // Connect to the user's response
       dialog.connect("response", (_, response_id) => {
         dialogsopen -= 1;
         if (response_id === "okay") {
@@ -1390,13 +1469,11 @@ export const TimeTrackerWindow = GObject.registerClass({
             buffer.get_end_iter(),
             false,
           );
+          
           // Remove leading and trailing line breaks
           newprojects = newprojects.trim();
 
-          // Ensure there are never two line breaks following each other
-          newprojects = newprojects.replace(/\n\n/g, "\n");
-
-          // Remove any commas
+          // Remove any backticks, since they are needed to separate projects
           newprojects = newprojects.replace("`", "'");
 
           editableProjects = newprojects.split("\n");
@@ -1405,19 +1482,26 @@ export const TimeTrackerWindow = GObject.registerClass({
 
           for (let i = 0; i < editableProjects.length; i++) {
             const proj = editableProjects[i];
+            
+            // In case two \n were following each other
             if (proj != "") {
+              // Add to new project array and to settings string
               newArray.push(proj);
               newString += proj;
+              
+              // Add separator to settings string if needed
               if (i < editableProjects.length - 1) {
                 newString += "`";
               }
             }
           }
+          // Write out to projects array and gsettings
           this.setprojects(newArray);
           this._settings.set_string("projects", newString);
         }
       });
 
+      // Present the dialog and let TT know that a new dialog is open
       dialog.present(this);
       dialogsopen += 1;
     } catch (e) {
@@ -1426,33 +1510,14 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
   
   // This method updates the visible log when any changes are made
+  // It prepares the `logdays[]` array with all the info, and then calls `loadlog()`
   async updatelog(entryID = null, formerstart = null, formerend = null) {
-    /*
-    will need these variables:
-    - array dividing entries into days: logdays
-    - how many days to display per page: numberofdays
-    - which page we are on: logpage
-    
-    Code to run:
-    - find out how many days to show per page
-    - find out which page we are on
-    - if ID is null (it's a bulk entry)
-      or if the edited entry is in one of the displayed days, 
-      or if a day prior to the last day displayed has been added or deleted, 
-      or there's more room on the page (and it's the last page) and any day has been added or deleted
-      - comb through all entries and sort them into a day list
-      - delete all current controls
-      - go through each day list and display it
-        - check if the year is this year, so that it doesn't need to be displayed
-    */
     try {
-      // sort the entries
+      // Sort the entries into a new array, empty logdays[]
       const sortedentries = [...entries].sort((b, a) => new Date(a.start) - new Date(b.start));
-    
-      // empty logdays[]
       logdays = [];
       
-      // fill logdays[]
+      // Add each entry to its proper day in `logdays[]`
       sortedentries.forEach(entry => {
         if (logdays.length == 0 || logdays[logdays.length - 1].day == null || 
         logdays[logdays.length-1].day.getFullYear() != entry.start.getFullYear() || 
@@ -1463,14 +1528,16 @@ export const TimeTrackerWindow = GObject.registerClass({
           logdays[logdays.length - 1].IDs.push(entry.ID);
         }
       });
+      
       this.loadlog();
     } catch (e) {
       console.log(e);
     }
   }
   
-  // In case we're going to the next page
+  // A wrapper for `loadlog()` in case we're going to the next page
   async loadnextpage() {
+    // Delete `logbox` and recreate it, so that the new page is scrolled to the top
     if (this._logbox) {
       this._logbox.unparent();
       this._logbox.run_dispose();
@@ -1482,33 +1549,41 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
   
   // After the log info has been updated, or a button clicked, load the change.
+  // If `pagenav` is true, that means we're going to a new page, not writing the log after a change
   async loadlog(pagenav = false) {
     try {
-      
+      // Make sure we don't go out of bounds in trying to load a page that doesn't exist
       if (logpage > 0 && numberofdays * logpage > logdays.length - 1) {
         logpage = logdays.length -1;
       }
       
-      // create entries to display
-      const box = new Gtk.Box({
+      const box = new Gtk.Box({ // Outer box
         orientation: 1,
       });
+      
+      // Go through all the days that are in the current range for displaying
       for (let i = numberofdays * logpage; i < (numberofdays * logpage) + numberofdays; i++) {
+        // Make sure we don't go beyond the number of days!
         if (i < logdays.length) {
-          const daybox = new Adw.PreferencesGroup({
+          const daybox = new Adw.PreferencesGroup({ // The PreferencesGroup containing a certain day
             margin_bottom: 12,
             margin_start: 6,
             margin_end: 6,
             title: this.datetodaytitle(logdays[i].day),
           });
+          
+          // If it's the first day in the range
           if (i == numberofdays * logpage) {
             daybox.set_margin_top(18);
           }
           
+          // Go through all the different entries organized in this day
           logdays[i].IDs.forEach(ID => {
+            // Get the actual entry
             const index = this.findindexbyID(ID);
             const entry = entries[index];
             
+            // Find the `title` property of the ActionRow below
             let description = "";
             if (entry.meta != null) {
               if (entry.project == "(no project)") {
@@ -1521,6 +1596,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               description = entry.project;
             }
             
+            // Create the edit button and the ActionRow
             const button = new Gtk.Button({
               halign: 3,
               valign: 3,
@@ -1529,30 +1605,33 @@ export const TimeTrackerWindow = GObject.registerClass({
             });
             const row = new Adw.ActionRow({
               title: description,
-              //activatable_widget: button,
             });
             
+            // Decide whether to display a duration in the `subtitle` or the current timer
             if (entry.end === null) {
               if (index == this.currentTimer()) {
+                // Display timer
                 timerwidget = row;
                 const currentDate = new Date();
                 const text = this.calcTimeDifference(startedTime, currentDate);
                 timerwidget.subtitle = "<b>" + text + "</b>";
               } else {
+                // By some fluke, we have a row that doesn't have an end date
                 row.subtitle = "<b>[??????]</b>";
               }
             } else {
+              // Display duration
               row.subtitle = "<b>" + this.calcTimeDifference(entry.start, entry.end) + "</b>";
             }
             
+            // Add button, add row the the PreferencesGroup
             row.add_suffix(button);
-            
             button.connect("clicked", () => {
               this.editentrydialog(ID);
             });
-            
             daybox.add(row);
           });
+          
           box.append(daybox);
         } else {
           break;
@@ -1560,7 +1639,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     
       if (!pagenav) {
-        // Delete all current log entries
+        // If we're not going to a different page, delete all current log entries
+        // (This would be redundant otherwise, since the logbox itself has already been deleted and re-created)
         let child = this._logbox.get_child();
         if (child) {
           child.unparent();
@@ -1568,10 +1648,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
       
-      // Add the new info
+      // Add the new log info
       this._logbox.set_child(box);
       
-      // Delete all current log entries
+      // Delete all current buttons in the bottom bar so that we can re-create them correctly
       for (let i = 0; i < 100; i++) {
         let child = this._logcontrols.get_first_child();
         if (child) {
@@ -1582,14 +1662,18 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
       
+      // Find number of pages of days
       let numpages = Math.ceil(logdays.length / numberofdays);
       
       if (numpages > 1) {
-        // Allow 1, largest, five other pages, preferably with logpage in the middle
+        // If there's more than one page, 
+        // get the first and last pages
         let displaypages = [0, numpages - 1];
+        // If the current page is not one of those, get it too
         if (logpage > 0 && logpage < numpages - 1) {
           displaypages.push(logpage);
         }
+        // Add the pages on either side of the current page, up to five pages total
         for (let i = 1; i < 6; i++) {
           if (displaypages.length >= 5) {
             break;
@@ -1602,15 +1686,19 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         }
         
+        // Sort them in order
         displaypages.sort((a, b) => a - b);
         
         for (let i = 0; i < displaypages.length; i++) {
+          // Create a button for each page
           const button = new Gtk.Button({
             label: (displaypages[i] + 1).toString(),
           });
           let style2 = button.get_style_context();
           style2.add_class("flat");
           style2.add_class("no-padding");
+          
+          // Mark the current page as not clickable, and handle the click events of others
           if (displaypages[i] == logpage) {
             button.set_sensitive(false);
           } else {
@@ -1619,14 +1707,20 @@ export const TimeTrackerWindow = GObject.registerClass({
               this.loadnextpage();
             });
           }
+          
           this._logcontrols.append(button);
+          
+          // If the next page in the list is more than one step up (there's a skip)
           if (displaypages[i + 1] > displaypages[i] + 1) {
+            // Create a button that visually shows the break
             const button2 = new Gtk.Button({
               label: ".",
             });
             let style3 = button2.get_style_context();
             style3.add_class("flat");
             style3.add_class("no-padding");
+            
+            // Have it open a dialog that goes to a selected page, with a reasonable default number
             button2.connect("clicked", () => {
               if (displaypages[i] == 1) {
                 this.gotopagedialog(Math.ceil((displaypages[i + 1] - displaypages[i]) / 2 + displaypages[i]));
@@ -1638,6 +1732,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         }
       } else {
+        // if there's only one page, create an invisible button to hold space in the bottom bar
         const button = new Gtk.Button({
           label: "",
         });
@@ -1652,6 +1747,8 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
   
+  // Calls a dialog that will take you to your selected page
+  // `number` is the default value
   async gotopagedialog(number = 1) {
     try {
       const dialog = new Adw.AlertDialog({
@@ -1667,20 +1764,11 @@ export const TimeTrackerWindow = GObject.registerClass({
         orientation: 0,
         width_request: 60,
       });
+      
+      // Make sure to set the proper range and value
       spin.set_range(1, Math.ceil(logdays.length / numberofdays));
       spin.set_value(number);
-      /*
-      const frame = new Gtk.Frame();
-      const view = new Gtk.TextView({
-        editable: true,
-        bottom_margin: 4,
-        top_margin: 4,
-        left_margin: 4,
-        right_margin: 4,
-      });
-      const { buffer } = view;
-      frame.set_child(view);
-      */
+
       dialog.set_extra_child(spin);
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
@@ -1688,17 +1776,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.connect("response", (_, response_id) => {
         dialogsopen -= 1;
         if (response_id === "okay") {
-          /*
-          let gotopage = buffer.get_text(
-            buffer.get_start_iter(),
-            buffer.get_end_iter(),
-            false,
-          );
-          // Remove leading and trailing line breaks
-          gotopage = gotopage.trim();
-          
-          logpage = parseInt(gotopage) - 1;
-          */
           logpage = spin.get_value() - 1;
           this.loadnextpage();
         }
@@ -1711,13 +1788,14 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // A wrapper for `editentrybyIndex()` that is only used by the system
   async editentrybyID(ID, project, start, end, billed, meta) {
     const foundItem = entries.find(item => item.ID === ID);
-    //console.log(foundItem);
     if (foundItem) {
       // Edit the entry
       this.editentrybyIndex(entries.indexOf(foundItem), project, start, end, billed, meta);
     } else {
+      // The entry was probably deleted, so we need to reinstate it
       // Remove the entry from sync_extraentries
       const foundDeletion = sync_extraentries.find(item => item.ID === ID);
       if (foundDeletion) {
@@ -1728,14 +1806,14 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // Finds a given index from an ID. Is useful for keeping code short sometimes.
   findindexbyID(ID) {
     const foundItem = entries.find(item => item.ID === ID);
     return entries.indexOf(foundItem);
   }
 
+  // A wrapper for `editentrybyIndex()` that is called by a user action
   async editentry_user(number, theproject, startDate, endDate, billed, meta, writeout = true) {
-    console.log("Noting edit of " + number + " in undo/redo array");
-
     // Note the change in the sync_change array
     sync_changes.push({
       change: "edit",
@@ -1751,14 +1829,12 @@ export const TimeTrackerWindow = GObject.registerClass({
       oldbilled: entries[number].billed,
       oldmeta: entries[number].meta,
     });
-    //console.log(sync_changes[sync_changes.length-1]);
     this.editentrybyIndex(number, theproject, startDate, endDate, billed, meta, writeout);
   }
 
-  // Edit the given entry in the entries array and the log control
+  // Edit the given entry
   async editentrybyIndex(number, theproject, startDate, endDate, billed, meta, writeout = true) {
-    console.log("Preparing to edit " + number);
-    // Stop the timer if the entry didn't have an end date, but does now
+    // If the entry didn't have an end date, but does now, stop the timer
     if (entries[number].end == null && endDate != null) {
       this.stopTimer();
     }
@@ -1767,134 +1843,98 @@ export const TimeTrackerWindow = GObject.registerClass({
     entries[number].end = endDate;
     entries[number].billed = billed;
     entries[number].meta = meta;
-    let new_item = "";
-    if (endDate === null) {
-      if (number == this.currentTimer()) {
-        new_item = "[logging] | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
-        }
-      } else if (!logging) {
-        new_item = "[logging] | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
-        }
-        this.startTimer(number, startDate);
-      } else {
-        new_item = "[???????] | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
-        }
-      }
-    } else {
-      new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
-      if (meta) {
-        new_item += "\n" + meta;
-      }
-      this.updatetotals();
+    
+    console.log("Edited entry # " + number + ", ID is " + entries[number].ID + ". It is `" + 
+      writeout + "` that this will be written out to the log");
+    
+    if (endDate != null) {
+      this.updatereports();
     }
-    
-    
-    // this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
     this.updatelog();
-    console.log("editentrybyIndex() is queuing a change to write out: " + writeout);
+    
+    // Mark that there are changes to sync
     changestobemade = writeout;
   }
 
+  // This is a wrapper for `addentry()` that is called by a user action
   async addentry_user(theproject, meta, startDate, endDate = null, billed = false, writeout = true, ID = 0) {
-    const now = new Date();
-    if (ID == 0) {
-      ID = now.getTime();
+    try {
+      // Create a new ID for the entry
+      const now = new Date();
+      if (ID == 0) {
+        ID = now.getTime();
+      }
+
+      // Note the change in the sync_change array
+      sync_changes.push({
+        change: "add",
+        project: theproject,
+        start: startDate,
+        end: endDate,
+        ID: ID,
+        billed: billed,
+      });
+
+      this.addentry(theproject, meta, startDate, endDate, billed, writeout, ID);
+    } catch (e) {
+      console.log(e);
     }
-
-    // Note the change in the sync_change array
-    sync_changes.push({
-      change: "add",
-      project: theproject,
-      start: startDate,
-      end: endDate,
-      ID: ID,
-      billed: billed,
-    });
-
-    this.addentry(theproject, meta, startDate, endDate, billed, writeout, ID)
   }
 
   // Add the given entry to the entries array and the log control
   async addentry(theproject, meta, startDate, endDate = null, billed = false, writeout = true, ID = 0, index = -1) {
-    //console.log(ID);
-    const now = new Date();
-    if (ID == 0) {
-      ID = now.getTime();
-    }
-
-    if (index == -1 || index > entries.length) {
-      entries.push({ start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
-
-      let new_item = "";
-      if (endDate === null && !logging) {
-        new_item = "[logging] | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
-        }
-        
-        //this.logmodel.splice(0, 0, [new_item]);
-        this.startTimer(entries.length - 1, startDate);
-        this.updatelog();
-      } else {
-        new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
-        }
-        
-        //this.logmodel.splice(0, 0, [new_item]);
-        this.updatelog();
-        this.updatetotals();
+    try {
+      // If the entry doesn't have an ID yet, create a new one
+      const now = new Date();
+      if (ID == 0) {
+        ID = now.getTime();
       }
-    } else {
-      entries.splice(index, 0, { start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
 
-      let new_item = "";
-      if (endDate === null && !logging) {
-        new_item = "[logging] | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
+      if (index == -1 || index > entries.length) {
+        // If there's no particular index chosen for this entry, or the index is out of range
+        entries.push({ start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
+
+        if (endDate === null && !logging) {
+          this.startTimer(entries.length - 1, startDate);
+        } else {
+          this.updatereports();
         }
-        
-        //this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
-        this.updatelog();
-        this.startTimer(entries.length - 1, startDate);
+
+        console.log("Added entry # " + (entries.length - 1) + ", ID is " + ID + ". It is `" + 
+          writeout + "` that this will be written out to the log");
       } else {
-        new_item = this.calcTimeDifference(startDate, endDate) + " | Project: " + theproject;
-        if (meta) {
-          new_item += "\n" + meta;
+        // If there's a chosen index, put it there
+        entries.splice(index, 0, { start: startDate, end: endDate, project: theproject, ID: ID, billed: billed, meta: meta });
+
+        if (endDate === null && !logging) {
+          this.startTimer(index, startDate);
+        } else {
+          this.updatereports();
         }
-        //this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
-        this.updatelog();
-        this.updatetotals();
+
+        console.log("Added entry # " + index + ", ID is " + ID + ". It is `" + 
+          writeout + "` that this will be written out to the log");
       }
+      this.updatelog();
+        
+      // Mark that there are changes to write out
+      changestobemade = writeout;
+    } catch (e) {
+      console.log(e);
     }
-
-    console.log("addentry() is queuing a change to write out: " + writeout);
-    changestobemade = writeout;
   }
-
-  // Something to do with searching the log control
-  createItemForFilterModel(listItem) {
-    const listRow = new Adw.ActionRow({
-      title: listItem.string,
-    });
-    return listRow;
-  }
-
+  
+  // !!!! start adding code comments here
   // Replace the current projects with the given projects in the array.
   // If a project was selected already, try to select that same project when the projectlist reloads.
+  // Don't use a try {} block, since the code calling it is expecting an error
   async setprojects(projectArray = []) {
     const selection = this._projectlist.get_selected();
     let theproject = "";
     if (selection) {
       theproject = projects[selection];
     }
+    // Update the project list
     nochange = true; // There wasn't actually a change, so don't do anything when the selected-item event is called
     model.splice(0, projects.length, [new project({ value: "(no project)" })]);
     nochange = false;
@@ -2035,7 +2075,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Update the reports
-  async updatetotals() {
+  async updatereports() {
     try {
       /*
         - destroys all existing reporting widgets (all children of this._nav_view)
@@ -2455,18 +2495,8 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       const fileDialog = new Gtk.FileDialog();
 
-      // Add filters
-      const fileFilter1 = new Gtk.FileFilter();
-      fileFilter1.add_suffix("csv");
-      fileFilter1.set_name("Comma-Separated Values");
-      const fileFilter2 = new Gtk.FileFilter();
-      fileFilter2.add_pattern("*");
-      fileFilter2.set_name("All Files");
-      const filterlist = new Gio.ListStore({ item_type: Gtk.FileFilter });
-      filterlist.append(fileFilter1);
-      filterlist.append(fileFilter2);
-      fileDialog.set_filters(filterlist);
-      fileDialog.set_initial_name("time entries");
+      // Add filters so that it selects for CSV files, but can be opened for all files in the dropdown
+      fileDialog.set_filters(this.filterlist());
 
       fileDialog.save(this, null, async (self, result) => {
         try {
@@ -2890,33 +2920,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "Apply Changes");
-      /*
-      let startDate = start;
-
-      let endDate = end;
-
-      let body = "";
-      if (!startDate && !endDate && !theproject && billed == null) {
-        body = "Edit ALL entries.";
-      } else {
-        body = "Edit all entries that meet the following conditions:";
-        if (startDate) {
-          body += "\nAfter " + this.datetotext(startDate, ", ");
-        }
-        if (endDate) {
-          body += "\nBefore " + this.datetotext(endDate, ", ");
-        }
-        if (theproject) {
-          body += "\nProject: " + theproject;
-        }
-        if (billed) {
-          body += "\nBilled: Yes";
-        } else if (billed == false) {
-          body += "\nBilled: No";
-        }
-      }
-      dialog.body = body;
-      */
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.DESTRUCTIVE);
 
@@ -3176,13 +3179,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         });
       });
-      /*
-      const addcontent = new Adw.ButtonContent({
-        label: "New Report",
-        icon_name: "list-add-symbolic",
-      });
-      add.set_child(addcontent);
-      */
+
       box1.append(add);
 
       const edit = new Gtk.Button({
@@ -3227,7 +3224,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (number > 0 && number < reports.length - 1) {
               [reports[number], reports[number + 1]] = [reports[number + 1], reports[number]];
             }
-            this.updatetotals();
+            this.updatereports();
 
             let reportstowrite = [];
             for (let i = 1; i < reports.length; i++) {
@@ -3259,7 +3256,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (number => 0 && number < reports.length - 2) {
               [reports[number + 1], reports[number + 2]] = [reports[number + 2], reports[number + 1]];
             }
-            this.updatetotals();
+            this.updatereports();
 
             let reportstowrite = [];
             for (let i = 1; i < reports.length; i++) {
@@ -3290,22 +3287,6 @@ export const TimeTrackerWindow = GObject.registerClass({
           const row = new Adw.ActionRow();
           row.title = report.title;
           listbox.append(row);
-          /*
-          const button = new Gtk.Button({
-            label: report.title,
-          });
-          button.connect("clicked", () => {
-            this.reportdialog(report, (response) => {
-              if (response == "okay") {
-                button.label = report.title;
-              } else if (response == "delete") {
-                button.unparent();
-                button.run_dispose();
-              }
-            });
-          });
-          box.append(button);
-          */
         }
       }
       box.append(listbox);
@@ -3382,14 +3363,14 @@ export const TimeTrackerWindow = GObject.registerClass({
               reports.push(report);
             }
             report.title = entry.get_text();
-            this.updatetotals();
+            this.updatereports();
           } else {
             report.deleted = true;
             const foundItem = reports.find(item => item.deleted === true);
             if (foundItem) {
               reports.splice(reports.indexOf(foundItem), 1);
             }
-            this.updatetotals();
+            this.updatereports();
           }
         } else if (response_id == "cancel" && report == null) {
           report = {deleted: true};
@@ -3800,13 +3781,12 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       secondentry.set_text(this.intto2digitstring(inputseconds));
 
-      hourminutelabel.label = "Enter hours & minutes with no separator (\"1130\")";
+      hourminutelabel.label = "Hours & minutes, e.g., (\"1130\")";
 
       timebox.append(hourminuteentry);
       timebox.append(secondentry);
       bottombox.append(hourminutelabel);
       bottombox.append(timebox);
-
 
       dialog.set_extra_child(box);
 
@@ -4454,7 +4434,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       } catch (e) {
         console.log(e);
       }
-      this.updatetotals();
+      this.updatereports();
     } else {
       //console.log("No change needed");
     }
@@ -4477,103 +4457,132 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
+  // Reads a CSV text into an array. Written for Time Tracker, but not specific to it
+  // Depends on `splitplus()`, a `split()` method with more features
+  // Only returns something if there's more than one line in `text`
   async readcsv(text) {
-    let readarray = [];
+    let result = [];
 
-    // Get lines
+    // Get lines, using `splitplus()`, which accounts for quotation marks
     let lines = this.splitplus(text, '\n');
 
-    // Get columns
+    // Get columns from the first line in the file
     let columns = this.splitplus(lines[0], ',');
 
-    // Get items from lines and columns
+    // Separate it out based on lines and columns
     if (lines.length > 1) {
       for (let i = 1; i < lines.length; i++) {
         if (lines[i] != "") {
+          // Get cell strings, using `splitplus()`, which accounts for quotation marks
           let strings = this.splitplus(lines[i], ',');
+          
           let entry = {};
           for (let j = 0; j < columns.length; j++) {
             let cell = "";
             try {
-              // If there's a strings[j], assign it to cell
+              // If there's a strings[j], assign it to `cell`
               cell = strings[j];
 
+              // But that's not enough, because we might end up with the wrong number of quotation marks
+              // So now let's remove any quotation marks that surround information in the cell
+              
+              // Find the beginning quote
               let first = cell.indexOf('"');
               if (first > -1) {
+                // Turns out a quotation mark is found. Remove it.
                 if (first == 0) {
                   cell = cell.slice(1, cell.length);
-                  //console.log("Took first character off: " + cell);
                 } else {
                   cell = cell.slice(0, first) + cell.slice(first + 1, cell.length);
-                  //console.log("Took character " + first + " off: " + cell);
                 }
+                
+                // Find the ending quote and remove it
                 let last = cell.lastIndexOf('"');
                 if (last == cell.length - 1) {
                   cell = cell.slice(0, cell.length - 1);
-                  //console.log("Took last character off: " + cell);
                 } else if (last > -1) {
                   cell = cell.slice(0, last) + cell.slice(last + 1, cell.length);
-                  //console.log("Took character " + last + " off: " + cell);
                 }
+                
+                // If there are any remaining quotation marks, make two characters into one, per the CSV specifications
                 cell = cell.replace(/""/g, '"');
               }
             } catch (_) {}
             entry[columns[j]] = cell;
           }
-          readarray.push(entry);
+          result.push(entry);
         }
       }
     }
-    return readarray;
+    return result;
   }
 
+  // Much like the `split()` method, but with some additional features
+  // If the separator appears within quotation marks, it's not counted
+  // `cleanquotes` indicates whether to remove quotation marks
   splitplus(text, separator, cleanquotes = false) {
     let result = [""];
+    
+    // This variable is used to clean or not clean quotes
     let clean = 0;
     if (cleanquotes) {
       clean = 1;
     }
 
-    //console.log("New read");
     try {
+      // Defining the starting and ending index variables, and a `stop` variable
       let starti = 0;
       let endi = 0;
       let stop = false;
+      
+      /* The following `for` loop essentially leapfrogs `starti` and `endi` over
+         each other in order to find out which instances of `separator` matter */
       for (let i = 0; i < text.length; i++) {
+        // Commas matter from `starti` until the first quote after it
         endi = text.indexOf('"', starti);
         if (endi == -1) {
+          /* If there is no opening quote until the end of `text`, then 
+             we'll treat the end as the opening quote, and signal to stop here */
           endi = text.length + 1;
           stop = true;
         }
-        //console.log("End: " + endi);
+        
+        // Now let's make use of our knowledge of `starti` and `endi`
         if (endi > starti) {
+          // This should always be true, but it's best to be sure
+          // Get the chunk of text that matters
           let chunk = text.slice(starti, endi);
-          //console.log(chunk);
-          let newlines = chunk.split(separator);
-          //console.log(result);
-          //console.log(newlines);
-          result[result.length - 1] += newlines[0];
-          if (newlines.length > 1) {
-            for (let j = 1; j < newlines.length; j++) {
-              result.push(newlines[j]);
-            }
+          // Split it up
+          let segments = chunk.split(separator);
+          
+          // Add the first segment to the previous item
+          result[result.length - 1] += segments[0];
+          // If there are more segments, push them to the array
+          if (segments.length > 1) {
+            result.push(...segments.slice(1));
           }
         }
         if (!stop) {
+          // If we have NOT been signaled to stop reading the string at this point
+          // Find the next closing quote. The +1s are important so that we jump over the quotes
           starti = text.indexOf('"', endi + 1) + 1;
           if (starti == 0) {
-            console.log("Malformed CSV file: No closing quotation mark.");
+            console.log("Malformed file: No closing quotation mark. This is a non-critical issue, but you might want to fix the file.");
+            // Signal it to stop once we've gone through this next chunk
             stop = true;
+            // Set `starti` to the end of the text
             starti = text.length + clean;
           }
-          //console.log("Start: " + starti);
+          // Now we deal with the chunk that we can't split up using `separator` due to it being in quotes
           if (starti > endi) {
-            //console.log(text.slice(endi + clean, starti - clean));
+            // If there is actually a chunk, add it to the last item in `result[]`
             result[result.length - 1] += text.slice(endi + clean, starti - clean);
           } else if (starti == endi + 1 && clean == 1) {
+            // (I think) If we've reached the end of the text, and we're not cleaning quotes, give a closing quote
             result[result.length - 1] += '"';
           }
         } else {
+          // If we HAVE been signaled to stop reading the string at this point
           break;
         }
       }
@@ -4584,6 +4593,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     return result;
   }
 
+  // Parse an array of objects that represent lines in a CSV file, into TT's `entries` array format
   async parsecsv(readarray, merge = false) {
     if (readarray.length > 0) {
       // First, validate columns. Look for project, start, end, ID
@@ -4897,53 +4907,19 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   closefirstusedialog() {
     this._stack.set_visible_child_name("page1");
-    this._add.set_sensitive(true);
     this._switcher_title.set_sensitive(true);
     this._menu.set_sensitive(true);
+    dialogsopen -= 1;
   }
 
   firstusedialog() {
-    this._add.set_sensitive(false);
+    dialogsopen += 1;
     this._switcher_title.set_sensitive(false);
     this._menu.set_sensitive(false);
     this._stack.set_visible_child_name("page3");
-    
-    
-    /*
-    const dialog = new Adw.AlertDialog({
-      heading: "Choose a Log File",
-      close_response: "cancel",
-    });
-
-    dialog.body = "Before you start using Time Tracker, choose where " +
-      "to store your time logs. You can also edit other settings, like " +
-      "the first day of the week, in Time Tracker preferences.";
-
-    dialog.add_response("option1", "Use App's System Folder");
-    dialog.add_response("option2", "Create New Log");
-    dialog.add_response("option3", "Use Existing Log");
-    dialog.add_response("cancel", "Close App");
-    dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
-
-    dialog.connect("response", async (_, response_id) => {
-      dialogsopen -= 1;
-      if (response_id === "cancel") {
-        this.close();
-      } else if (response_id === "option2") {
-        this.newlog(true);
-      } else if (response_id === "option3") {
-        this.openlog(true);
-      } else {
-        // system folder
-        this.usesystemfolder();
-      }
-    });
-
-    dialog.present(this);
-    dialogsopen += 1;
-    */
   }
 
+  // Set the log path as `{home}/.local/share/time-tracker/log.csv`
   async usesystemfolder() {
     this.stopsynctimer();
     const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
@@ -4952,6 +4928,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     logpath = filepath + "/log.csv";
     this._settings.set_string("log", logpath);
     const file = Gio.File.new_for_path(logpath);
+    
     // If the file exists
     const fileexists = file.query_exists(null);
     if (!fileexists) {
@@ -4965,9 +4942,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     } else {
       //await this.readfromfile();
     }
-    // Set up sync timer
-    //        console.log(8);
-    //this.setsynctimer();
   }
 
   async runbackups(deleteold = true) {
@@ -5058,103 +5032,4 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
-
-  /*
-  async preferencesdialog() {
-    try {
-      const dialog = new Adw.AlertDialog({
-        heading: "Preferences",
-        close_response: "cancel",
-      });
-      dialog.add_response("cancel", "Done");
-
-      const box = new Gtk.Box({
-        orientation: 1,
-        spacing: 6,
-      });
-
-      const label = new Gtk.Label({
-        label: "What day should be the first day\nof the week in reports?",
-      });
-      box.append(label);
-
-      const weeklist = new Gtk.DropDown({
-        enable_search: true,
-        margin_bottom: 16,
-      });
-      box.append(weeklist);
-
-      // Set the weeklist contents
-      weeklist.expression = weekexpression;
-      weeklist.model = weekmodel;
-      weeklist.set_selected(this.firstdayofweek);
-      weeklist.connect("notify::selected-item", () => {
-        this.firstdayofweek = weeklist.get_selected();
-        this._settings.set_int("firstdayofweek", this.firstdayofweek);
-        this.updatetotals();
-      });
-
-      const group1 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group1.set_title("Import Projects from Log");
-      group1.set_description("When opening a new log file, add its project names to the list of available projects.");
-      const project_switch = new Adw.SwitchRow();
-      group1.add(project_switch);
-      box.append(group1);
-      project_switch.set_active(addprojectsfromlog);
-      project_switch.connect("notify::active", () => {
-        addprojectsfromlog = project_switch.get_active();
-        this._settings.set_boolean("addprojectsfromlog", addprojectsfromlog);
-      });
-
-      const group2 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group2.set_title("12-Hour Format");
-      group2.set_description("Should Time Tracker use 12-hour time format (AM/PM), instead of 24-hour time format?");
-      const time_switch = new Adw.SwitchRow();
-      group2.add(time_switch);
-      box.append(group2);
-      time_switch.set_active(ampmformat);
-      time_switch.connect("notify::active", () => {
-        ampmformat = time_switch.get_active();
-        this._settings.set_boolean("ampmformat", ampmformat);
-      });
-
-      const group3 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group3.set_title("Use Temporary Logs");
-      group3.set_description("Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?");
-      const temp_switch = new Adw.SwitchRow();
-      group3.add(temp_switch);
-      box.append(group3);
-      temp_switch.set_active(sync_autotemplog);
-      temp_switch.connect("notify::active", () => {
-        sync_autotemplog = temp_switch.get_active();
-        this._settings.set_boolean("autotemplog", sync_autotemplog);
-      });
-
-      let loglabel = new Gtk.Label({
-        label: "Set Time Tracker to store logs in the app's\nsystem folder, instead of in a user-specified file?",
-      });
-
-      const sysbutton = new Gtk.Button();
-      sysbutton.label = "Store Logs in App's System Folder";
-      sysbutton.connect("clicked", () => {
-        this.usesystemfolder();
-        this.savedialog();
-        loglabel.label = "Now storing logs in app's system folder.";
-      });
-      box.append(loglabel);
-      box.append(sysbutton);
-
-      dialog.set_extra_child(box);
-      dialog.present(this);
-    } catch (e) {
-      console.log(e);
-    }
-  }
-  */
 });
