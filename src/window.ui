@@ -7,7 +7,7 @@
     <property name="width-request">350</property>
     <property name="height-request">500</property>
     <property name="content">
-      <object class="GtkBox">
+      <object class="GtkBox" id="mainbox">
         <property name="orientation">1</property>
         <child>
           <object class="AdwHeaderBar" id="header_bar">
@@ -168,12 +168,12 @@
                   <object class="GtkScrolledWindow" id="logscroll">
                     <property name="child">
                       
-                  <object class="GtkBox">
-                    <property name="orientation">1</property>
-                    <property name="margin-start">24</property>
-                    <property name="margin-end">24</property>
-                    <property name="margin-top">24</property>
-                    <property name="margin-bottom">24</property>
+                      <object class="GtkBox">
+                        <property name="orientation">1</property>
+                        <property name="margin-start">24</property>
+                        <property name="margin-end">24</property>
+                        <property name="margin-top">24</property>
+                        <property name="margin-bottom">24</property>
 
                         <child>
                           <object class="GtkBox" id="presetreports">
@@ -223,127 +223,23 @@
                             </child>
                           </object>
                         </child>
-                          </object>
-                        </child>
-                      </object>
-                    </property>
-                  </object>
-                </property>
-              </object>
-            </child>
-            <child>
-              <object class="AdwViewStackPage" id="page3">
-                <property name="name">page3</property>
-                <property name="use-underline">true</property>
-                <property name="child">
-                  <object class="GtkScrolledWindow">
-                    <property name="child">
-
-                    <object class="GtkBox" id="welcome">
-                      <property name="orientation">1</property>
-                      <property name="valign">3</property>
-                      <property name="halign">3</property>
-                      <property name="margin-start">24</property>
-                      <property name="margin-end">24</property>
-                      <child>
-                        <object class="GtkImage">
-                          <property name="name">logo</property>
-                          <property name="icon-name">com.lynnmichaelmartin.TimeTracker</property>
-                          <property name="pixel-size">96</property>
-                          <property name="margin-bottom">18</property>
-                          <style>
-                            <class name="icon-dropshadow"/>
-                          </style>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkLabel">
-                          <property name="label" translatable="yes">Welcome to Time Tracker!</property>
-                          <property name="margin-bottom">12</property>
-                          <style>
-                            <class name="title-2"/>
-                          </style>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkBox" id="subtitle">
-                          <property name="orientation">1</property>
-                          <property name="halign">3</property>
-                          <property name="margin-bottom">30</property>
-                          <child>
-                            <object class="GtkLabel">
-                              <property name="label">Where would you like to store your time log?</property>
-                              <property name="justify">2</property>
-                            </object>
-                          </child>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkLabel">
-                          <property name="label">Choose one of the following if you want to store it in a folder of your choice.</property>
-                          <property name="justify">2</property>
-                          <property name="margin-bottom">12</property>
-                          <property name="wrap">1</property>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkBox">
-                          <property name="halign">3</property>
-                          <property name="margin-bottom">30</property>
-                          <child>
-                            <object class="GtkButton" id="newbutton">
-                              <child>
-                                <object class="AdwButtonContent">
-                                  <property name="label" translatable="yes">New Log File</property>
-                                  <property name="icon-name">list-add-symbolic</property>
-                                </object>
-                              </child>
-                              <property name="margin-end">12</property>
-                            </object>
-                          </child>
-                          <child>
-                            <object class="GtkButton" id="openbutton">
-                              <child>
-                                <object class="AdwButtonContent">
-                                  <property name="label" translatable="yes">Existing File</property>
-                                  <property name="icon-name">document-open-symbolic</property>
-                                </object>
-                              </child>
-                            </object>
-                          </child>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkLabel">
-                          <property name="label">If you don't want to think about it, choose the following option.</property>
-                          <property name="justify">2</property>
-                          <property name="margin-bottom">12</property>
-                          <property name="wrap">1</property>
-                        </object>
-                      </child>
-                      <child>
-                        <object class="GtkBox">
-                          <property name="halign">3</property>
-                          <child>
-                            <object class="GtkButton" id="systembutton">
-                              <child>
-                                <object class="AdwButtonContent">
-                                  <property name="label" translatable="yes">System Folder</property>
-                                  <property name="icon-name">applications-system-symbolic</property>
-                                </object>
-                              </child>
-                            </object>
-                          </child>
                         </object>
                       </child>
                     </object>
-
-                      
-                    </property>
+                  </property>
+                </object>
+              </property>
+            </object>
+              
+              <object class="AdwViewStackPage" id="page3">
+                <property name="name">page3</property>
+                <property name="child">
+                  <object class="GtkBox" id="dialogbox">
                   </object>
                 </property>
               </object>
-            </child>
+          </child>
+
           </object>
         </child>
       </object>
