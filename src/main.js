@@ -36,7 +36,7 @@ export const TimeTrackerApplication = GObject.registerClass(
                     application_name: 'time-tracker',
                     application_icon: 'com.lynnmichaelmartin.TimeTracker',
                     developer_name: 'Lynn Martin',
-                    version: '2.1.2',
+                    version: '2.1.3',
                     developers: [
                         'Lynn Martin'
                     ],
