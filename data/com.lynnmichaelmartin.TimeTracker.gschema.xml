@@ -35,7 +35,7 @@
       <default>false</default>
     </key>
     <key name="version" type="s">
-      <default>'2.1.2'</default>
+      <default>'2.1.3'</default>
     </key>
     <key name="reports" type="s">
       <default>'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````client`project`/~/`Last Week`week-1`week-1`````client`project'</default>
