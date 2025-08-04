@@ -61,7 +61,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.1.3";
+let version = "2.1.4";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
@@ -572,6 +572,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     // Stop sync timer
     clearInterval(sync_timer);
 
+    /* Removing this backup code for now in favor of more aggressive backups
     tick += 1;
     // Run backups
     try {
@@ -587,18 +588,23 @@ export const TimeTrackerWindow = GObject.registerClass({
         // Run auto backup
         this.runbackups();
 
-        // Redo reports
+        // Redo reports {why?}
         this.updatetotals();
       }
     } catch (_) {
       // Backups failed
     }
+    */
 
     // If there are any changes to write out, write them out
     if (changestobemade) {
       console.log("Sync has detected changes to be made: " + changestobemade);
       changestobemade = false;
       await this.writelog();
+      
+      // Run a backup (new aggressive system)
+      this.runbackups();
+      
     } else {
       // Sync to the file
       await this.readfromfile();
@@ -1929,19 +1935,25 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // When the user clicks the start/stop button, do the right action
   async startstop() {
-    const currentDate = new Date();
+    try {
+      if (dilogsopen < 1) {
+        const currentDate = new Date();
 
-    console.log("Is timer on? " + logging.toString());
-    if (logging) {
-      this.stoprunningentry(currentDate);
-    } else {
-      const selection = this._projectlist.get_selected();
-      const selectionText = projects[selection];
-      let meta = null;
-      if (this._metaentry.get_text()) {
-        meta = this._metaentry.get_text();
+        console.log("Is timer on? " + logging.toString());
+        if (logging) {
+          this.stoprunningentry(currentDate);
+        } else {
+          const selection = this._projectlist.get_selected();
+          const selectionText = projects[selection];
+          let meta = null;
+          if (this._metaentry.get_text()) {
+            meta = this._metaentry.get_text();
+          }
+          this.addentry_user(selectionText, meta, currentDate);
+        }
       }
-      this.addentry_user(selectionText, meta, currentDate);
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -2000,11 +2012,18 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Calculate the difference between two times. textOutput decides whether it comes in 1h 34m 21s format, or whether it comes in seconds.
   // There's another function somewhere that ought to be going through this one {{{
   calcTimeDifference(startTime, endTime, textOutput = true) {
-    const timeDifference = Math.floor((endTime - startTime) / 1000); // Time difference in seconds
-    if (textOutput && timeDifference >= 0) {
-      return this.secondstoOutput(timeDifference);
-    } else {
-      return timeDifference;
+    try {
+      let timeDifference = Math.floor((endTime - startTime) / 1000); // Time difference in seconds
+      if (timeDifference < 0) {
+        timeDifference = 0;
+      }
+      if (textOutput) {
+        return this.secondstoOutput(timeDifference);
+      } else {
+        return timeDifference;
+      }
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -3820,12 +3839,12 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (hourminute != "" && secondtext != "") {
             let hour = 0;
             let minute = 0;
-            if (hourminute.length > 2) {
+            //if (hourminute.length > 2) {
               hour = Math.floor(parseInt(hourminute) / 100);
               minute = parseInt(hourminute) - (hour * 100);
-            } else {
-              hour = parseInt(hourminute);
-            }
+            //} else {
+            //  hour = parseInt(hourminute);
+            //}
             let second = parseInt(secondtext);
             if (isNaN(second)) {
               second = 0;
@@ -4067,6 +4086,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             hour = parseInt(hourminute);
           }
           let second = parseInt(secondentry.get_text());
+          console.log(second);
           if (isNaN(second)) {
             second = 0;
           }
@@ -4077,7 +4097,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           
           chosendate.setHours(hour);
           chosendate.setMinutes(minute);
-          chosendate.setSeconds(parseInt(secondentry.get_text()));
+          chosendate.setSeconds(second);
           chosendate.setMilliseconds(0);
           if (ampm) {
             if (pm.get_active() && hour > 0 && hour < 12) {
@@ -4970,6 +4990,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     //this.setsynctimer();
   }
 
+  /* Rewriting this to do more aggressive backups
   async runbackups(deleteold = true) {
     console.log("Trying to do a backup");
     try {
@@ -5029,6 +5050,81 @@ export const TimeTrackerWindow = GObject.registerClass({
               //console.log(tosearch);
               //console.log(dateoffile);
               if (dateoffile < todelete && number > numberofbackups) {
+                filestodelete.push(files[i]);
+              }
+            }
+          }
+
+          // Delete filestodelete
+          if (filestodelete.length > 0) {
+            for (let i = 0; i < filestodelete.length; i++) {
+              const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
+
+              await file.delete_async(GLib.PRIORITY_DEFAULT, null);
+            }
+            console.log("Deleted old backups: " + filestodelete);
+          }
+        }
+      }
+    } catch (e) {
+      console.log("Tried to save backup, but failed: " + e);
+    }
+  }
+  */
+  
+    async runbackups(deleteold = true) {
+    console.log("Trying to do a backup");
+    try {
+      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
+      const directory = Gio.File.new_for_path(filepath);
+      if (!directory.query_exists(null)) {
+        success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
+      } else {
+        const iter = await directory.enumerate_children_async('standard::*',
+            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
+
+        // Find all files in directory
+        let files = [];
+        for await (const fileInfo of iter)
+            files.push(fileInfo.get_name());
+
+        // Check if a backup was made today
+        let today = new Date();
+        const ID = today.getTime();
+        
+        let todaysname = "backup_" + today.getFullYear() +
+        "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
+        this.intto2digitstring(today.getDate()) + "_" + today.getTime() + ".csv";
+        await this.createfile(filepath + "/" + todaysname);
+        await this.writelog(filepath + "/" + todaysname, null, false);
+        console.log("Saved a backup");
+        files.push(todaysname);
+
+
+        // Clean up extra backups according to numberofbackups
+        // Will not delete any backups created less than [numberofbackups+1] days ago
+        if (deleteold) {
+          files.sort();
+          let filestodelete = [];
+            let numberofbackups = 7;
+          try {
+            numberofbackups = this._settings.get_int("numberofbackups");
+          } catch (_) {
+          }
+          let todelete = new Date();
+          todelete.setDate(today.getDate() - numberofbackups - 1);
+          //console.log(todelete);
+          for (let i = files.length - 1; i > -1; i--) {
+            if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
+              let tosearch = files[i].split("_")[1];
+              tosearch = tosearch.split(".")[0];
+              let dateoffile = new Date();
+              dateoffile.setFullYear(parseInt(tosearch.split("-")[0]));
+              dateoffile.setMonth(parseInt(tosearch.split("-")[1])-1);
+              dateoffile.setDate(parseInt(tosearch.split("-")[2]));
+              //console.log(tosearch);
+              //console.log(dateoffile);
+              if (dateoffile < todelete) {
                 filestodelete.push(files[i]);
               }
             }
