@@ -61,7 +61,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.1.4";
+let version = "2.1.5";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
@@ -1936,7 +1936,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   // When the user clicks the start/stop button, do the right action
   async startstop() {
     try {
-      if (dilogsopen < 1) {
+      if (dialogsopen < 1) {
         const currentDate = new Date();
 
         console.log("Is timer on? " + logging.toString());
