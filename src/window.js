@@ -941,8 +941,16 @@ export const TimeTrackerWindow = GObject.registerClass({
       if (sync_extraentries.length > 0 && filteredentries == null) {
         for (let i = 0; i < sync_extraentries.length; i++) {
           let ID = sync_extraentries[i].ID;
-          let deletedate = sync_extraentries[i].end;
-          entriesString += '\n,deleted,' + deletedate.toString() +',,' + ID.toString() + ",,,";
+          let end = sync_extraentries[i].end;
+          let start = sync_extraentries[i].start;
+          if (start == null) {
+            entriesString += '\n,deleted,' + end.toString() +',,' + ID.toString() + ",,,";
+          } else {
+            let project = sync_extraentries[i].project;
+            let meta = sync_extraentries[i].meta;
+            let billed = sync_extraentries[i].billed;
+            entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() +',' + meta + ',' + ID.toString() + ",,," + billed;
+          }
         }
       }
 
@@ -4284,13 +4292,13 @@ export const TimeTrackerWindow = GObject.registerClass({
                 projectsfromlog.push(entry.project);
               }
             }
-          } else {
+          } else if (entry.start == "deleted") {
             // This is a deleted entry
             if (entry.end) {
               // Remove any old deletions
-              // Create date that is two days ago
+              // Create date that is eight days ago
               let del = new Date();
-              del.setDate(del.getDate() - 2);
+              del.setDate(del.getDate() - 8);
 
               if (entry.end > del) {
                 sync_extraentries.push({ID: entry.ID, end: entry.end});
@@ -4299,6 +4307,8 @@ export const TimeTrackerWindow = GObject.registerClass({
               // Assign the dateless deletion a date
               sync_extraentries.push({ID: entry.ID, end: new Date()});
             }
+          } else { // save any unreadable entries
+            sync_extraentries.push({ID: entry.ID, start: entry.start, end: entry.end, project: entry.project, meta: entry.meta, billed: entry.billed});
           }
         }
         if (!merge) {
