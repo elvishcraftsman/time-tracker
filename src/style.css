@@ -1,5 +1,5 @@
 .timer {
-  font-size: 250%;
+  font-size: 245%;
 }
 .controls {
   background-color: var(--card-bg-color);
@@ -8,5 +8,8 @@
 .no-padding {
   padding-left: 12px;
   padding-right: 12px;
+  font-size: smaller;
+}
+.light-font {
   font-size: smaller;
 }

@@ -2,6 +2,23 @@
 
 // Handy page for styling info: https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/style-classes.html
 
+/* 
+Encoding writable variables:
+%yy = year (25)
+%yyyy = year (2025)
+%m = month (1-12)
+%d = day (1-31)
+%mm = month (01-12)
+%mn = month name (January-December)
+%dd = day (01-31)
+%H = hour
+%M = minute
+%S = second
+%D = weekday
+%dr = duration (readable: 00:15:05)
+%ds = duration (seconds: 905)
+*/
+
 // Perform the necessary imports
 import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk';
@@ -61,7 +78,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.1.5";
+let version = "2.1.6";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
@@ -180,7 +197,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       reports = reports.concat(this.settingstoreports(reportsetting));
     }
     
-    console.log(this._settings.get_int("window-width"));
+    //console.log(this._settings.get_int("window-width"));
 
     // Applying the custom settings
     this.firstdayofweek = this._settings.get_int("firstdayofweek");
@@ -379,16 +396,21 @@ export const TimeTrackerWindow = GObject.registerClass({
   versioning(versions) {
     try {
       console.log("Welcome to Time Tracker " + version + ".");
-      let versionhistory = versions.split(">");
-      let lastversion = versionhistory[versionhistory.length - 1];
+      if (versions == "") {
+        this._settings.set_string("version", version);
+        console.log("Version history for this installation of Time Tracker: " + version + ".");
+      } else {
+        let versionhistory = versions.split(">");
+        let lastversion = versionhistory[versionhistory.length - 1];
 
-      // If this is the first time using this version
-      if (lastversion != version) {
-        // Set the current version as the latest version
-        this._settings.set_string("version", versions + ">" + version);
-        // Now, execute any further code that we need to
+        // If this is the first time using this version
+        if (lastversion != version) {
+          // Set the current version as the latest version
+          this._settings.set_string("version", versions + ">" + version);
+          // Now, execute any further code that we need to
+        }
+        console.log("Version history for this installation of Time Tracker: " + versions + ".");
       }
-      console.log("Version history for this installation of Time Tracker: " + versions + ".");
     } catch (e) {
       console.log(e);
     }
@@ -691,7 +713,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               if (!file.query_exists(null)) {
                 await this.createfile(logpath);
               } else {
-                await this.writetofile(logpath, "Project,Start,End,ID");
+                await this.writetofile(logpath, "Project,Start,End,ID,Billed");
               }
               sync_firsttime = true;
               // Empty sync_extracolumns
@@ -869,7 +891,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Convert the log array into CSV format
   async writelog(filepath = logpath, filteredentries = null, notify = true) {
     try {
-      let entriesString = "Project,Start Time,End Time,Description,ID,Duration (Readable),Duration (Seconds),Billed";
+      let entriesString = "Project,Start Time,End Time,Description,ID,Billed,%dr,%ds";
 
       if (sync_extracolumns.length > 0) {
         for (let i = 0; i < sync_extracolumns.length; i++) {
@@ -910,7 +932,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
         if (filteredentries == null) {
-          entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+          entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString() + "," + duration + "," + seconds;
 
           if (sync_extracolumns.length > 0) {
             for (let j = 0; j < sync_extracolumns.length; j++) {
@@ -924,7 +946,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           const foundItem = filteredentries.find(item => item.ID === ID);
           if (foundItem) {
             // Same code as above, redundant for speed purposes
-            entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + duration + "," + seconds + "," + billed.toString();
+            entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString() + "," + duration + "," + seconds;
 
             if (sync_extracolumns.length > 0) {
               for (let j = 0; j < sync_extracolumns.length; j++) {
@@ -949,7 +971,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             let project = sync_extraentries[i].project;
             let meta = sync_extraentries[i].meta;
             let billed = sync_extraentries[i].billed;
-            entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() +',' + meta + ',' + ID.toString() + ",,," + billed;
+            entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() +',' + meta + ',' + ID.toString() + "," + billed.toString() + ",,";
           }
         }
       }
@@ -1191,9 +1213,13 @@ export const TimeTrackerWindow = GObject.registerClass({
       */
 
       const startb = new Gtk.Button();
+      let startbstyle = startb.get_style_context();
+      startbstyle.add_class("light-font");
       box1.append(startb);
 
       const endb = new Gtk.Button();
+      let endbstyle = endb.get_style_context();
+      endbstyle.add_class("light-font");
       box1.append(endb);
 
       if (index > -1) {
@@ -4402,8 +4428,6 @@ export const TimeTrackerWindow = GObject.registerClass({
 
               // If so, we will edit it
               console.log("Sync is requesting to edit " + spot);
-              console.log(entries[spot]);
-              console.log(entry);
               this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, entry.meta, false);
 
             } else {
@@ -4639,8 +4663,16 @@ export const TimeTrackerWindow = GObject.registerClass({
           billedColumn = column;
         } else if (metaColumn == "" && /description/i.test(column)) {
           metaColumn = column;
-        } else if (!/duration/i.test(column)) {
-          // If this is not a duration column, make sure it's in the extra columns list
+        } else if (/%/i.test(column)) {
+          // This is a write-only column
+          
+          // Code to parse this into a format that makes sense. Maybe an array of objects
+          // Each variable and each of the spaces or other things between variables will be a different object
+          // No, that wouldn't quite work
+          
+        } else if (/duration/i.test(column)) { // This section is deprecated and should be removed after a number of updates
+          // If this is a duration column, make sure it's not in the extra columns list
+        } else {
           const foundItem = sync_extracolumns.indexOf(column);
           if (foundItem == -1) {
             sync_extracolumns.push(column);
@@ -4687,32 +4719,43 @@ export const TimeTrackerWindow = GObject.registerClass({
         } catch (_) {}
 
         let ID = parseInt(entry[idColumn]);
+        let deleteit = false;
         try {
           // Is the ID a proper number, or is there a duplicate? If not, then assign it an ID
           let now = new Date(); // In case a new ID needs to be made
           if (isNaN(ID)) {
-            if (isNaN(entry[startColumn])) {
+            if (isNaN(startvalue)) {
               console.log("No start date or ID in line " + i + ": removing.");
+              console.log('Original start date: "' + entry[startColumn] + '"');
+              console.log('Parses to: "' + startvalue + '"');
+              console.log('Original ID: "' + entry[idColumn] + '"');
+              console.log('Parses to: "' + ID + '"');
               changestobemade = true; // Set the app to write the changes that it made
               // Just delete it
-              continue;
+              deleteit = true;
             } else {
+              console.log('Invalid ID found: "' + entry[idColumn] + '", at line ' + i + ", project: " + entry[projectColumn] + ", start: " + entry[startColumn]);
+              console.log('Parses to: "' + ID + '"');
               ID = now.getTime();
-              console.log("Invalid ID found: " + entry[idColumn] + ", at line " + i + ", project: " + entry[projectColumn] + ", start: " + entry[startColumn] + " Assigning it new ID: " + ID);
+              console.log(" Assigning it new ID: " + ID);
               changestobemade = true; // Set the app to write the changes that it made
             }
           } else if (readentries.find(item => item.ID === ID) || (merge && sync_firsttime && entries.find(item => item.ID === ID))) {
-            if (isNaN(entry[startColumn])) {
+            if (isNaN(startvalue)) {
               console.log("No start date and duplicate ID in line " + i + ": removing.");
+              console.log('Original start date: "' + entry[startColumn] + '"');
+              console.log('Parses to: "' + startvalue + '"');
+              console.log('ID: "' + ID + '"');
               changestobemade = true; // Set the app to write the changes that it made
               // Just delete it
-              continue;
+              deleteit = true;
             } else {
               ID = now.getTime();
               console.log("Duplicate ID found: " + entry[idColumn] + ", at line " + i + ", project: " + entry[projectColumn] + ", start: " + entry[startColumn] + " Assigning it new ID: " + ID);
               changestobemade = true; // Set the app to write the changes that it made
             }
-          }
+          } // No else needed because everything else should just keep moving
+          
           // Is there a duplicate ID still? If so, then change this ID
           for (let j = 0; j < readentries.length + entries.length; j++) {
             let duplicate = readentries.find(item => item.ID === ID);
@@ -4732,23 +4775,25 @@ export const TimeTrackerWindow = GObject.registerClass({
         } catch (e) {
           console.log(e);
         }
-
-        let outputentry = {
-          start: startvalue,
-          end: endvalue,
-          project: projvalue,
-          ID: ID,
-          billed: billed,
-          meta: meta,
-        };
-        // Add unreadable columns
-        if (sync_extracolumns.length > 0) {
-          for (let j = 0; j < sync_extracolumns.length; j++) {
-            outputentry[sync_extracolumns[j]] = entry[sync_extracolumns[j]];
+        
+        if (deleteit == false) {
+          let outputentry = {
+            start: startvalue,
+            end: endvalue,
+            project: projvalue,
+            ID: ID,
+            billed: billed,
+            meta: meta,
+          };
+          // Add unreadable columns
+          if (sync_extracolumns.length > 0) {
+            for (let j = 0; j < sync_extracolumns.length; j++) {
+              outputentry[sync_extracolumns[j]] = entry[sync_extracolumns[j]];
+            }
           }
-        }
 
-        readentries.push(outputentry);
+          readentries.push(outputentry);
+        }
 
       }
       this.setentries(readentries, merge);
@@ -5264,3 +5309,4 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
   */
 });
+
