@@ -78,7 +78,7 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.1.6";
+let version = "2.1.7";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
@@ -520,7 +520,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               this.editentrybyID(change.ID, change.oldproject, change.oldstart, change.oldend, change.oldbilled, change.oldmeta);
             } else {
               // Change was an addition
-              this.removeentrybyID(change.ID);
+              this.removeentrybyID(change.ID, "undo()");
             }
             // Set that item as .undone = true
             sync_changes[i].undone = true;
@@ -554,7 +554,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (change.change == "add" || change.change == "edit") {
               this.editentrybyID(change.ID, change.project, change.start, change.end, change.billed, change.meta);
             } else {
-              this.removeentrybyID(change.ID);
+              this.removeentrybyID(change.ID, "redo()");
             }
             // Set that item as .undone = false
             sync_changes[j].undone = false;
@@ -910,10 +910,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         let billed = false;
         try {
           let startDate = entries[i].start;
-          start = startDate.toString();
+          start = this.addquotes(startDate.toString());
           let endDate = entries[i].end;
           if (endDate) {
-            end = endDate.toString();
+            end = this.addquotes(endDate.toString());
             duration = this.calcTimeDifference(startDate, endDate, true).toString();
             seconds = this.calcTimeDifference(startDate, endDate, false).toString();
           } else {
@@ -925,7 +925,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             billed = true;
           }
           if (entries[i].meta) {
-            meta = entries[i].meta;
+            meta = this.addquotes(entries[i].meta);
           }
         } catch (e) {
           console.log(e);
@@ -966,7 +966,8 @@ export const TimeTrackerWindow = GObject.registerClass({
           let end = sync_extraentries[i].end;
           let start = sync_extraentries[i].start;
           if (start == null) {
-            entriesString += '\n,deleted,' + end.toString() +',,' + ID.toString() + ",,,";
+            let reason = sync_extraentries[i].reason;
+            entriesString += '\n,deleted,' + end.toString() +',' + reason + ',' + ID.toString() + ",,,";
           } else {
             let project = sync_extraentries[i].project;
             let meta = sync_extraentries[i].meta;
@@ -1033,17 +1034,17 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // This is used when the system, rather than the user, is removing an entry
   // Therefore, it doesn't affect sync_changes the same way
-  async removeentrybyID(ID) {
+  async removeentrybyID(ID, reason = "") {
     //console.log(ID);
     //console.log(entries);
     const foundItem = entries.find(item => item.ID === ID);
     if (foundItem) {
       //console.log(entries.indexOf(foundItem) + " " + foundItem);
-      this.removeentrybyIndex(entries.indexOf(foundItem));
+      this.removeentrybyIndex(entries.indexOf(foundItem), true, reason + "removeentrybyID()");
     }
   }
 
-  async removeentry_user(number, writeout = true) {
+  async removeentry_user(number, writeout, reason = "") {
     // Note the change in the sync_change array
     sync_changes.push({
       change: "delete",
@@ -1055,7 +1056,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       oldmeta: entries[number].meta,
     });
 
-    this.removeentrybyIndex(number, writeout);
+    this.removeentrybyIndex(number, writeout, reason + "removeentry_user()");
   }
 
   // Finds the index of the current timer
@@ -1069,10 +1070,10 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Remove the given entry from the entries array and the log control
-  async removeentrybyIndex(number, writeout = true) {
+  async removeentrybyIndex(number, writeout, reason = "unknown") {
     // Add it to the extraentries so that it isn't considered simply dropped
     let del = new Date();
-    sync_extraentries.push({ ID: entries[number].ID, end: del });
+    sync_extraentries.push({ ID: entries[number].ID, end: del, reason: reason });
 
     if (number == this.currentTimer()) {
       this.stopTimer();
@@ -1380,7 +1381,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               );
             }
           } else {
-            this.removeentry_user(index);
+            this.removeentry_user(index, true, "editentrydialog()");
             this._toast_overlay.add_toast(Adw.Toast.new("The entry was deleted."));
           }
         }
@@ -4327,11 +4328,11 @@ export const TimeTrackerWindow = GObject.registerClass({
               del.setDate(del.getDate() - 8);
 
               if (entry.end > del) {
-                sync_extraentries.push({ID: entry.ID, end: entry.end});
+                sync_extraentries.push({ID: entry.ID, end: entry.end, reason: entry.meta});
               }
             } else {
               // Assign the dateless deletion a date
-              sync_extraentries.push({ID: entry.ID, end: new Date()});
+              sync_extraentries.push({ID: entry.ID, end: new Date(), reason: entry.meta});
             }
           } else { // save any unreadable entries
             sync_extraentries.push({ID: entry.ID, start: entry.start, end: entry.end, project: entry.project, meta: entry.meta, billed: entry.billed});
@@ -4434,7 +4435,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
               // If not, we will delete it
               console.log("Sync is requesting to remove " + spot);
-              this.removeentrybyIndex(spot, false);
+              this.removeentrybyIndex(spot, false, "[couldn't read start date]");
             }
 
             // If the setting to add projects from a log is set
@@ -4471,14 +4472,22 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
 
       if (!merge) {
-        // Perform QC check to see if anything was deleted entirely.
+        // Perform QC check to see if anything was deleted entirely. !!!!!
         // Don't do this if merging files, or we would probably lose data
         // In the current version of this software, it just submissively deletes it rather than objecting
         for (let i = 0; i < entries.length; i++) {
           const foundItem = readentries.find(item => item.ID === entries[i].ID);
           if (!foundItem) {
             console.log("Deletion occurred without warning: " + entries[i]);
-            this.removeentrybyIndex(i, false);
+            this.removeentrybyIndex(i, false, "[couldn't find entry]");
+            // Instead, need to try once to see if it can be added again. But don't loop forever!
+            /*
+            1. Do not remove the item
+            2. Queue a merge after syncing
+            3. Find the last backup
+            4. Merge the last backup into this file, with the current file being the master
+            5. Add to the number of times this has happened in the last two minutes. If more than once, give up
+            */
           }
         }
       }
@@ -4578,6 +4587,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
     }
+    //console.log(readarray);
     return readarray;
   }
 
@@ -4737,7 +4747,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               console.log('Invalid ID found: "' + entry[idColumn] + '", at line ' + i + ", project: " + entry[projectColumn] + ", start: " + entry[startColumn]);
               console.log('Parses to: "' + ID + '"');
               ID = now.getTime();
-              console.log(" Assigning it new ID: " + ID);
+              console.log("Assigning it new ID: " + ID);
               changestobemade = true; // Set the app to write the changes that it made
             }
           } else if (readentries.find(item => item.ID === ID) || (merge && sync_firsttime && entries.find(item => item.ID === ID))) {
@@ -4830,6 +4840,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         const contentsText = new TextDecoder('utf-8').decode(contentsBytes);
         //console.log(contentsText);
         let csv = await this.readcsv(contentsText);
+        
+        //let testcsv = await this.readcsv('1,2,3\n"4,4","5,5",6\n7,8,""9""');
+        //console.log(testcsv);
+        
         this.parsecsv(csv, merge);
 
       } else if (thepath == logpath && filelost) {
