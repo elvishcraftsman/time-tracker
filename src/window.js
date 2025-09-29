@@ -78,12 +78,14 @@ let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
 let nav_pages = [];
 let nav_current = 0;
-let version = "2.1.7";
+let version = "2.1.8";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
 let logpage = 0;
 let timerwidget;
+let numberofsyncproblems = 0;
+let lastsync = new Date();
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -190,6 +192,8 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Get the version history gsetting and call the versioning() function in case something should be done depending on the former version
     this.versioning(this._settings.get_string("version"));
+    
+    //this._settings.set_string("reports", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````client`project`/~/`Last Week`week-1`week-1`````client`project');
 
     // Read reports setting from gsettings
     let reportsetting = this._settings.get_string("reports");
@@ -593,6 +597,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     try {
     // Stop sync timer
     clearInterval(sync_timer);
+    let currentsync = new Date();
 
     /* Removing this backup code for now in favor of more aggressive backups
     tick += 1;
@@ -631,7 +636,12 @@ export const TimeTrackerWindow = GObject.registerClass({
       // Sync to the file
       await this.readfromfile();
     }
+    
+    if (lastsync.getDate() != currentsync.getDate()) {
+      this.updatetotals();
+    }
 
+    lastsync = currentsync;
     // Start sync timer
     this.resetsynctimer();
     } catch (e) {
@@ -2347,6 +2357,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     } else {
       current.setHours(23, 59, 59, 999);
     }
+    
     if (edit.indexOf("+") > -1) {
       let a = edit.split("+");
       if (a[0] == "day") {
@@ -2629,7 +2640,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
       } else if (groupby == "tag" || groupby == "client") {
-
+        // Go through all entries in the filter
         for (let i = 1; i < filter.length; i++) {
           let entry = entries[this.findindexbyID(filter[i].ID)];
           let duration = 0;
@@ -2645,7 +2656,8 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (groupby == "client") {
             char = "@";
           }
-
+          
+          // Find the tags in this entry
           let tags = [];
           for (let j = 0; j < tagsearch.length; j++) {
             j = tagsearch.indexOf(" " + char, j);
@@ -2658,7 +2670,7 @@ export const TimeTrackerWindow = GObject.registerClass({
                 if (!tags.includes(tag)) {
                   tags.push(tag);
                 }
-                j += tag.length + 2;
+                j += tag.length;
               } else {
                 j += 2;
               }
@@ -4237,6 +4249,7 @@ export const TimeTrackerWindow = GObject.registerClass({
   async setentries(readentries, merge = false) {
     let change = false;
     let projectsfromlog = [];
+    let syncproblem = false;
 
     // Is this the first time this log file has been read since it was opened?
     if (sync_firsttime) {
@@ -4472,22 +4485,26 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
 
       if (!merge) {
-        // Perform QC check to see if anything was deleted entirely. !!!!!
+        // Perform QC check to see if anything was deleted entirely.
         // Don't do this if merging files, or we would probably lose data
-        // In the current version of this software, it just submissively deletes it rather than objecting
         for (let i = 0; i < entries.length; i++) {
           const foundItem = readentries.find(item => item.ID === entries[i].ID);
           if (!foundItem) {
+            // This is what it looks like if it just submissively deletes it rather than objecting
             console.log("Deletion occurred without warning: " + entries[i]);
             this.removeentrybyIndex(i, false, "[couldn't find entry]");
+            
             // Instead, need to try once to see if it can be added again. But don't loop forever!
             /*
-            1. Do not remove the item
-            2. Queue a merge after syncing
-            3. Find the last backup
-            4. Merge the last backup into this file, with the current file being the master
-            5. Add to the number of times this has happened in the last two minutes. If more than once, give up
+            -1. Do not remove the item
+            -2. Queue a merge after syncing
+            -3. Find the last backup
+            -4. Merge the last backup into this file, with the current file being the master
+            -5. Add to the number of times this has happened in the last two minutes. If more than once, give up
             */
+            
+            //syncproblem = true;
+            
           }
         }
       }
@@ -4520,6 +4537,18 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.updatetotals();
     } else {
       //console.log("No change needed");
+    }
+    if (syncproblem) {
+      if (numberofsyncproblems <= 2) {
+        numberofsyncproblems += 1;
+        console.log("Trying " + numberofsyncproblems + "th time to correct a sync issue.");
+        let lastbackup = await this.findbackup();
+        //console.log(lastbackup);
+        await this.readfromfile(lastbackup, true); //seems like something is wrong in setentries()
+        await this.writelog();
+      }
+    } else {
+      numberofsyncproblems = 0;
     }
   }
 
@@ -4730,7 +4759,6 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         let ID = parseInt(entry[idColumn]);
         let deleteit = false;
-        try {
           // Is the ID a proper number, or is there a duplicate? If not, then assign it an ID
           let now = new Date(); // In case a new ID needs to be made
           if (isNaN(ID)) {
@@ -4766,6 +4794,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
           } // No else needed because everything else should just keep moving
           
+        if (deleteit == false) {
           // Is there a duplicate ID still? If so, then change this ID
           for (let j = 0; j < readentries.length + entries.length; j++) {
             let duplicate = readentries.find(item => item.ID === ID);
@@ -4782,11 +4811,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               break;
             }
           }
-        } catch (e) {
-          console.log(e);
-        }
         
-        if (deleteit == false) {
           let outputentry = {
             start: startvalue,
             end: endvalue,
@@ -5161,9 +5186,11 @@ export const TimeTrackerWindow = GObject.registerClass({
         let today = new Date();
         const ID = today.getTime();
         
+        let logname = logpath.split("/")[logpath.split("/").length - 1];
+        
         let todaysname = "backup_" + today.getFullYear() +
         "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
-        this.intto2digitstring(today.getDate()) + "_" + today.getTime() + ".csv";
+        this.intto2digitstring(today.getDate()) + "_" + today.getTime() + "_" + logname;
         await this.createfile(filepath + "/" + todaysname);
         await this.writelog(filepath + "/" + todaysname, null, false);
         console.log("Saved a backup");
@@ -5212,6 +5239,50 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     } catch (e) {
       console.log("Tried to save backup, but failed: " + e);
+    }
+  }
+  
+  async findbackup(countfromlast = 0) {
+    try {
+      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
+      const directory = Gio.File.new_for_path(filepath);
+      if (directory.query_exists(null)) {
+        const iter = await directory.enumerate_children_async('standard::*',
+            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
+
+        // Find all files in directory
+        let files = [];
+        for await (const fileInfo of iter)
+            files.push(fileInfo.get_name());
+
+        files.sort();
+        let count = 0;
+        
+        let logname = logpath.split("/")[logpath.split("/").length - 1];
+
+        for (let i = files.length - 1; i > -1; i--) {
+          // Validate that it is a backup by using the filename
+          let parts = files[i].split("_");
+          if (parts[0] == "backup" && parts[parts.length - 1] == logname) {
+            if (!isNaN(parseInt(parts[1].split("-")[0])) && !isNaN(parseInt(parts[1].split("-")[1])) 
+                && !isNaN(parseInt(parts[1].split("-")[2]))) {
+              if (!isNaN(parseInt(parts[2]))) {
+                if (count == countfromlast) {
+                  return files[i];
+                  break;
+                } else {
+                  count++;
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      return null;
+      
+    } catch (e) {
+      console.log(e);
     }
   }
 
