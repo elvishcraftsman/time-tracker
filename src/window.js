@@ -2,21 +2,51 @@
 
 // Handy page for styling info: https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/style-classes.html
 
-/* 
-Encoding writable variables:
-%yy = year (25)
-%yyyy = year (2025)
-%m = month (1-12)
-%d = day (1-31)
-%mm = month (01-12)
-%mn = month name (January-December)
-%dd = day (01-31)
-%H = hour
-%M = minute
-%S = second
-%D = weekday
-%dr = duration (readable: 00:15:05)
-%ds = duration (seconds: 905)
+/*
+Here is the code for
+
+%b = start date (source: use at beginning of header to pull from entry start time)
+%e = end date (source: use at beginning of header to pull from entry end time)
+%l = duration (source: use at beginning of header to calculate time between start and end)
+%% = literal percent sign (e.g. %% → %)
+
+--- Duration tokens (use with %l) ---
+%s  = total duration in seconds (e.g. 3661)
+%H  = duration hours, zero-padded (e.g. 01)
+%M  = duration minutes, zero-padded (e.g. 01)
+%S  = duration seconds component, zero-padded (e.g. 01)
+
+--- Date/time tokens (use with %b or %e) ---
+%yyyy = full year (e.g. 2025)
+%yy   = two-digit year (e.g. 25)
+%mn   = month name (e.g. January)
+%mm   = month, zero-padded (e.g. 01)
+%m    = month (e.g. 1)
+%dd   = day of month, zero-padded (e.g. 05)
+%d    = day of month (e.g. 5)
+%D    = weekday name (e.g. Wednesday)
+%y    = day of year (e.g. 364)
+%W    = week number, respects first-day-of-week setting (e.g. 52)
+%q    = quarter (e.g. 4)
+%H    = hour, 24-hour, zero-padded (e.g. 09)
+%h    = hour, 12-hour (e.g. 9)
+%p    = AM/PM (e.g. AM)
+%M    = minute, zero-padded (e.g. 05)
+%S    = second, zero-padded (e.g. 07)
+%ZZ   = time zone, long form (e.g. Eastern Standard Time)
+%Z    = time zone, short form (e.g. EST)
+%O    = UTC offset (e.g. -05:00)
+%u    = Unix timestamp in seconds (e.g. 1735544025)
+
+--- Examples ---
+%b%mm/%dd/%yyyy                → 12/30/2025
+%b%yyyy-%mm-%dd         → 2025-12-30
+%b%H:%M:%S              → 09:05:07
+%b%h:%M:%S %p           → 9:05:07 AM
+%b%D, %mn %d            → Tuesday, December 30
+%b%yyyy-%mm-%dd %H:%M:%S %Z  → 2025-12-30 09:05:07 EST
+%l%H:%M:%S              → 01:01:01
+%l%s                    → 3661
 */
 
 // Perform the necessary imports
@@ -86,6 +116,7 @@ let logpage = 0;
 let timerwidget;
 let numberofsyncproblems = 0;
 let lastsync = new Date();
+let sync_writeonly_columns = []; // headers that contain % format codes
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -192,7 +223,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     // Get the version history gsetting and call the versioning() function in case something should be done depending on the former version
     this.versioning(this._settings.get_string("version"));
-    
+
     //this._settings.set_string("reports", 'Today`day+0`day+0`````project`/~/`This Week`week+0`week+0`````client`project`/~/`Last Week`week-1`week-1`````client`project');
 
     // Read reports setting from gsettings
@@ -200,7 +231,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     if (reportsetting.indexOf("`") > -1) {
       reports = reports.concat(this.settingstoreports(reportsetting));
     }
-    
+
     //console.log(this._settings.get_int("window-width"));
 
     // Applying the custom settings
@@ -264,6 +295,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     const reportsAction = new Gio.SimpleAction({name: 'reports'});
     reportsAction.connect('activate', () => this.reportsdialog());
     this.add_action(reportsAction);
+
+    // Connecting the "Edit Log's Extra Columns" button with the proper function
+    const columnsAction = new Gio.SimpleAction({name: 'editcolumns'});
+    columnsAction.connect('activate', () => this.editwriteonlycolumnsdialog());
+    this.add_action(columnsAction);
 
     // Connecting the project model to projectlist
     this._projectlist.expression = listexpression;
@@ -628,15 +664,15 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log("Sync has detected changes to be made: " + changestobemade);
       changestobemade = false;
       await this.writelog();
-      
+
       // Run a backup (new aggressive system)
       this.runbackups();
-      
+
     } else {
       // Sync to the file
       await this.readfromfile();
     }
-    
+
     if (lastsync.getDate() != currentsync.getDate()) {
       this.updatetotals();
     }
@@ -901,11 +937,18 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Convert the log array into CSV format
   async writelog(filepath = logpath, filteredentries = null, notify = true) {
     try {
-      let entriesString = "Project,Start Time,End Time,Description,ID,Billed,%dr,%ds";
+      let entriesString = "Project,Start Time,End Time,Description,ID,Billed";
 
       if (sync_extracolumns.length > 0) {
         for (let i = 0; i < sync_extracolumns.length; i++) {
           entriesString += "," + this.addquotes(sync_extracolumns[i]);
+        }
+      }
+
+      // Add write-only column headers
+      if (sync_writeonly_columns.length > 0) {
+        for (let i = 0; i < sync_writeonly_columns.length; i++) {
+          entriesString += "," + this.addquotes(sync_writeonly_columns[i]);
         }
       }
 
@@ -914,8 +957,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         let start = "";
         let end = "";
         let meta = "";
-        let duration = "";
-        let seconds = "";
         let ID = 0;
         let billed = false;
         try {
@@ -924,8 +965,6 @@ export const TimeTrackerWindow = GObject.registerClass({
           let endDate = entries[i].end;
           if (endDate) {
             end = this.addquotes(endDate.toString());
-            duration = this.calcTimeDifference(startDate, endDate, true).toString();
-            seconds = this.calcTimeDifference(startDate, endDate, false).toString();
           } else {
             end = "";
           }
@@ -942,7 +981,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
         if (filteredentries == null) {
-          entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString() + "," + duration + "," + seconds;
+          entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString();
 
           if (sync_extracolumns.length > 0) {
             for (let j = 0; j < sync_extracolumns.length; j++) {
@@ -952,11 +991,17 @@ export const TimeTrackerWindow = GObject.registerClass({
               }
             }
           }
+          if (sync_writeonly_columns.length > 0) {
+            for (let j = 0; j < sync_writeonly_columns.length; j++) {
+              const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], entries[i]);
+              entriesString += "," + this.addquotes(value);
+            }
+          }
         } else {
           const foundItem = filteredentries.find(item => item.ID === ID);
           if (foundItem) {
             // Same code as above, redundant for speed purposes
-            entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString() + "," + duration + "," + seconds;
+            entriesString += '\n' + project + "," + start + "," + end + "," + meta + "," + ID.toString() + "," + billed.toString();
 
             if (sync_extracolumns.length > 0) {
               for (let j = 0; j < sync_extracolumns.length; j++) {
@@ -964,6 +1009,12 @@ export const TimeTrackerWindow = GObject.registerClass({
                 if (entries[i][sync_extracolumns[j]]) {
                   entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
                 }
+              }
+            }
+            if (sync_writeonly_columns.length > 0) {
+              for (let j = 0; j < sync_writeonly_columns.length; j++) {
+                const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], entries[i]);
+                entriesString += "," + this.addquotes(value);
               }
             }
           }
@@ -975,14 +1026,24 @@ export const TimeTrackerWindow = GObject.registerClass({
           let ID = sync_extraentries[i].ID;
           let end = sync_extraentries[i].end;
           let start = sync_extraentries[i].start;
+
+          // Build the padding for extra and write-only columns
+          let columnPadding = "";
+          if (sync_extracolumns.length > 0) {
+            columnPadding += ",".repeat(sync_extracolumns.length);
+          }
+          if (sync_writeonly_columns.length > 0) {
+            columnPadding += ",".repeat(sync_writeonly_columns.length);
+          }
+
           if (start == null) {
             let reason = sync_extraentries[i].reason;
-            entriesString += '\n,deleted,' + end.toString() +',' + reason + ',' + ID.toString() + ",,,";
+            entriesString += '\n,deleted,' + end.toString() + ',' + reason + ',' + ID.toString() + "," + columnPadding;
           } else {
             let project = sync_extraentries[i].project;
             let meta = sync_extraentries[i].meta;
             let billed = sync_extraentries[i].billed;
-            entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() +',' + meta + ',' + ID.toString() + "," + billed.toString() + ",,";
+            entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() + ',' + meta + ',' + ID.toString() + "," + billed.toString() + columnPadding;
           }
         }
       }
@@ -1091,10 +1152,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     //currentTimer = entries[number].ID; //not sure what this was doing
     console.log("Deleted entry # " + number + ", ID is " + entries[number].ID);
-    
+
     // !!!!
     //this.logmodel.remove(entries.length - 1 - number);
-    
+
     entries.splice(number, 1);
     this.updatelog();
 
@@ -1158,7 +1219,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
 
       dialog.add_response("cancel", "Cancel");
-      
+
       let index = -1;
       if (ID != null) {
         index = this.findindexbyID(ID);
@@ -1320,7 +1381,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         billedb.set_active(true);
       }
       box.append(billedb);
-      
+
       const deleteb = new Gtk.ToggleButton();
       const deletebcontent = new Adw.ButtonContent({
         label: "Delete",
@@ -1475,7 +1536,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
-  
+
   // This method updates the visible log when any changes are made
   async updatelog(entryID = null, formerstart = null, formerend = null) {
     /*
@@ -1483,13 +1544,13 @@ export const TimeTrackerWindow = GObject.registerClass({
     - array dividing entries into days: logdays
     - how many days to display per page: numberofdays
     - which page we are on: logpage
-    
+
     Code to run:
     - find out how many days to show per page
     - find out which page we are on
     - if ID is null (it's a bulk entry)
-      or if the edited entry is in one of the displayed days, 
-      or if a day prior to the last day displayed has been added or deleted, 
+      or if the edited entry is in one of the displayed days,
+      or if a day prior to the last day displayed has been added or deleted,
       or there's more room on the page (and it's the last page) and any day has been added or deleted
       - comb through all entries and sort them into a day list
       - delete all current controls
@@ -1499,15 +1560,15 @@ export const TimeTrackerWindow = GObject.registerClass({
     try {
       // sort the entries
       const sortedentries = [...entries].sort((b, a) => new Date(a.start) - new Date(b.start));
-    
+
       // empty logdays[]
       logdays = [];
-      
+
       // fill logdays[]
       sortedentries.forEach(entry => {
-        if (logdays.length == 0 || logdays[logdays.length - 1].day == null || 
-        logdays[logdays.length-1].day.getFullYear() != entry.start.getFullYear() || 
-        logdays[logdays.length-1].day.getMonth() != entry.start.getMonth() || 
+        if (logdays.length == 0 || logdays[logdays.length - 1].day == null ||
+        logdays[logdays.length-1].day.getFullYear() != entry.start.getFullYear() ||
+        logdays[logdays.length-1].day.getMonth() != entry.start.getMonth() ||
         logdays[logdays.length-1].day.getDate() != entry.start.getDate()) {
           logdays.push({day: entry.start, IDs: [entry.ID]});
         } else {
@@ -1519,7 +1580,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
-  
+
   // In case we're going to the next page
   async loadnextpage() {
     if (this._logbox) {
@@ -1528,18 +1589,18 @@ export const TimeTrackerWindow = GObject.registerClass({
       this._logbox = new Gtk.ScrolledWindow();
       this._logouter.append(this._logbox);
     }
-    
+
     this.loadlog(true);
   }
-  
+
   // After the log info has been updated, or a button clicked, load the change.
   async loadlog(pagenav = false) {
     try {
-      
+
       if (logpage > 0 && numberofdays * logpage > logdays.length - 1) {
         logpage = logdays.length -1;
       }
-      
+
       // create entries to display
       const box = new Gtk.Box({
         orientation: 1,
@@ -1555,23 +1616,29 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (i == numberofdays * logpage) {
             daybox.set_margin_top(18);
           }
-          
+
           logdays[i].IDs.forEach(ID => {
             const index = this.findindexbyID(ID);
             const entry = entries[index];
-            
+
+            // Escape special characters for Pango markup
+            const escapeMarkup = (str) => str
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+
             let description = "";
             if (entry.meta != null) {
               if (entry.project == "(no project)") {
-                description = entry.meta;
+                description = escapeMarkup(entry.meta);
               } else {
-                // 55% is equivalent to .dim Adwaita class
-                description = entry.project + '  <span font_weight="bold" fgalpha="55%">' + entry.meta + '</span>';
+                description = escapeMarkup(entry.project) + '  <span font_weight="bold" fgalpha="55%">' + escapeMarkup(entry.meta) + '</span>';
               }
             } else {
-              description = entry.project;
+              description = escapeMarkup(entry.project);
             }
-            
+
             const button = new Gtk.Button({
               halign: 3,
               valign: 3,
@@ -1582,7 +1649,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               title: description,
               //activatable_widget: button,
             });
-            
+
             if (entry.end === null) {
               if (index == this.currentTimer()) {
                 timerwidget = row;
@@ -1595,13 +1662,13 @@ export const TimeTrackerWindow = GObject.registerClass({
             } else {
               row.subtitle = "<b>" + this.calcTimeDifference(entry.start, entry.end) + "</b>";
             }
-            
+
             row.add_suffix(button);
-            
+
             button.connect("clicked", () => {
               this.editentrydialog(ID);
             });
-            
+
             daybox.add(row);
           });
           box.append(daybox);
@@ -1609,7 +1676,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           break;
         }
       }
-    
+
       if (!pagenav) {
         // Delete all current log entries
         let child = this._logbox.get_child();
@@ -1618,10 +1685,10 @@ export const TimeTrackerWindow = GObject.registerClass({
           child.run_dispose();
         }
       }
-      
+
       // Add the new info
       this._logbox.set_child(box);
-      
+
       // Delete all current log entries
       for (let i = 0; i < 100; i++) {
         let child = this._logcontrols.get_first_child();
@@ -1632,9 +1699,9 @@ export const TimeTrackerWindow = GObject.registerClass({
           break;
         }
       }
-      
+
       let numpages = Math.ceil(logdays.length / numberofdays);
-      
+
       if (numpages > 1) {
         // Allow 1, largest, five other pages, preferably with logpage in the middle
         let displaypages = [0, numpages - 1];
@@ -1652,9 +1719,9 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
           }
         }
-        
+
         displaypages.sort((a, b) => a - b);
-        
+
         for (let i = 0; i < displaypages.length; i++) {
           const button = new Gtk.Button({
             label: (displaypages[i] + 1).toString(),
@@ -1702,7 +1769,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
-  
+
   async gotopagedialog(number = 1) {
     try {
       const dialog = new Adw.AlertDialog({
@@ -1713,7 +1780,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "OK");
-      
+
       const spin = new Gtk.SpinButton({
         orientation: 0,
         width_request: 60,
@@ -1747,7 +1814,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           );
           // Remove leading and trailing line breaks
           gotopage = gotopage.trim();
-          
+
           logpage = parseInt(gotopage) - 1;
           */
           logpage = spin.get_value() - 1;
@@ -1844,8 +1911,8 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
       this.updatetotals();
     }
-    
-    
+
+
     // this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
     this.updatelog();
     console.log("editentrybyIndex() is queuing a change to write out: " + writeout);
@@ -1888,7 +1955,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        
+
         //this.logmodel.splice(0, 0, [new_item]);
         this.startTimer(entries.length - 1, startDate);
         this.updatelog();
@@ -1897,7 +1964,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        
+
         //this.logmodel.splice(0, 0, [new_item]);
         this.updatelog();
         this.updatetotals();
@@ -1911,7 +1978,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (meta) {
           new_item += "\n" + meta;
         }
-        
+
         //this.logmodel.splice(entries.length - 1 - index, 0, [new_item]);
         this.updatelog();
         this.startTimer(entries.length - 1, startDate);
@@ -2008,11 +2075,11 @@ export const TimeTrackerWindow = GObject.registerClass({
       // Stop logging
       logging = false;
       clearInterval(timer);
-      
+
       // Make sure that the actionrow that had the timer is up to date
       let entry = entries[this.currentTimer()];
       timerwidget.subtitle = "<b>" + this.calcTimeDifference(entry.start, entry.end) + "</b>";
-      
+
       // Reset everything
       currentTimer = null;
       timerwidget = null;
@@ -2357,7 +2424,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     } else {
       current.setHours(23, 59, 59, 999);
     }
-    
+
     if (edit.indexOf("+") > -1) {
       let a = edit.split("+");
       if (a[0] == "day") {
@@ -2656,7 +2723,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (groupby == "client") {
             char = "@";
           }
-          
+
           // Find the tags in this entry
           let tags = [];
           for (let j = 0; j < tagsearch.length; j++) {
@@ -3322,7 +3389,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             listbox.remove(selection);
             listbox.insert(row, number + 1);
             listbox.select_row(row);
-            if (number => 0 && number < reports.length - 2) {
+            if (number >= 0 && number < reports.length - 2) {
               [reports[number + 1], reports[number + 2]] = [reports[number + 2], reports[number + 1]];
             }
             this.updatetotals();
@@ -3415,7 +3482,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       entry.set_text(report.title);
       box.append(entry);
       box.append(this.reportcontrols(report));
-      
+
       const deleteb = new Gtk.ToggleButton({
         margin_top: 12,
       });
@@ -3843,7 +3910,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       let timestyle = timebox.get_style_context();
       timestyle.add_class("linked");
-      
+
       const bottombox = new Gtk.Box({
         orientation: 1,
         spacing: 6,
@@ -4141,7 +4208,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           chosendate.setFullYear(yearspin.get_text());
           // This line MUST follow month and year, since otherwise, a day of greater value than the chosendate's original month's number of days could cause a problem.
           chosendate.setDate(dayspin.get_value());
-          
+
           chosendate.setHours(hour);
           chosendate.setMinutes(minute);
           chosendate.setSeconds(second);
@@ -4192,20 +4259,20 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
     return thestring;
   }
-  
+
   datetodaytitle(date) {
     try {
       const today = new Date();
       today.setHours(0,0,0,0);
       const current = new Date(date)
       current.setHours(0,0,0,0);
-      
+
       let dateString = "";
-      
+
       if (date.getTime() === today.getTime()) {
         dateString = "Today, ";
       }
-      
+
       dateString += date.toString();
       const year = date.getFullYear().toString();
 
@@ -4370,7 +4437,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         } else {
           // Add to the visible log contents
-          
+
           //this.logmodel.splice(0, 0, new_items);
 
           if (!logging) {
@@ -4378,7 +4445,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (latestStartIndex > -1) {
               this.startTimer(latestStartIndex + modelLength, latestStartDate);
               // Set that entry as [logging]
-              
+
               //this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
             }
           } else {
@@ -4387,13 +4454,13 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (current) {
               if (entries[current].start < latestStartDate) {
                 // Set that entry as [???????]
-                
+
                 //this.logmodel.splice(entries.length - 1 - current, 1, ["[???????] | Project: " + entries[current].project]);
                 this.stopTimer();
 
                 this.startTimer(latestStartIndex + modelLength, latestStartDate);
                 // Set that entry as [logging]
-                
+
                 //this.logmodel.splice(entries.length - 1 - current, 1, ["[logging] | Project: " + entries[current].project]);
                 this.updatelog();
               }
@@ -4493,7 +4560,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             // This is what it looks like if it just submissively deletes it rather than objecting
             console.log("Deletion occurred without warning: " + entries[i]);
             this.removeentrybyIndex(i, false, "[couldn't find entry]");
-            
+
             // Instead, need to try once to see if it can be added again. But don't loop forever!
             /*
             -1. Do not remove the item
@@ -4502,9 +4569,9 @@ export const TimeTrackerWindow = GObject.registerClass({
             -4. Merge the last backup into this file, with the current file being the master
             -5. Add to the number of times this has happened in the last two minutes. If more than once, give up
             */
-            
+
             //syncproblem = true;
-            
+
           }
         }
       }
@@ -4527,10 +4594,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (this.currentTimer() != null) {
           this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
         }
-        
+
         // update the log
         this.updatelog();
-        
+
       } catch (e) {
         console.log(e);
       }
@@ -4703,13 +4770,37 @@ export const TimeTrackerWindow = GObject.registerClass({
         } else if (metaColumn == "" && /description/i.test(column)) {
           metaColumn = column;
         } else if (/%/i.test(column)) {
-          // This is a write-only column
-          
-          // Code to parse this into a format that makes sense. Maybe an array of objects
-          // Each variable and each of the spaces or other things between variables will be a different object
-          // No, that wouldn't quite work
-          
+          // Write-only column
+          // Backwards compatibility: transform deprecated duration column names
+          let transformedColumn = column;
+          if (column === "%dr") {
+            transformedColumn = "%l%H:%M:%S";
+            changestobemade = true;
+          } else if (column === "%ds") {
+            transformedColumn = "%l%s";
+            changestobemade = true;
+          }
+          if (sync_writeonly_columns.indexOf(transformedColumn) === -1) {
+            sync_writeonly_columns.push(transformedColumn);
+          } else if (transformedColumn !== column) {
+            // The transformed target already exists — drop this duplicate, don't push
+            changestobemade = true;
+          }
         } else if (/duration/i.test(column)) { // This section is deprecated and should be removed after a number of updates
+          // Backwards compatibility: transform deprecated duration column names
+          let transformedColumn = null;
+          if (column === "Duration (Readable)") {
+            transformedColumn = "%l%H:%M:%S";
+          } else if (column === "Duration (Seconds)") {
+            transformedColumn = "%l%s";
+          }
+          if (transformedColumn && sync_writeonly_columns.indexOf(transformedColumn) === -1) {
+            sync_writeonly_columns.push(transformedColumn);
+            changestobemade = true;
+          } else if (transformedColumn) {
+            // The transformed target already exists — drop this duplicate
+            changestobemade = true;
+          }
           // If this is a duration column, make sure it's not in the extra columns list
         } else {
           const foundItem = sync_extracolumns.indexOf(column);
@@ -4793,7 +4884,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               changestobemade = true; // Set the app to write the changes that it made
             }
           } // No else needed because everything else should just keep moving
-          
+
         if (deleteit == false) {
           // Is there a duplicate ID still? If so, then change this ID
           for (let j = 0; j < readentries.length + entries.length; j++) {
@@ -4811,7 +4902,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               break;
             }
           }
-        
+
           let outputentry = {
             start: startvalue,
             end: endvalue,
@@ -4865,10 +4956,10 @@ export const TimeTrackerWindow = GObject.registerClass({
         const contentsText = new TextDecoder('utf-8').decode(contentsBytes);
         //console.log(contentsText);
         let csv = await this.readcsv(contentsText);
-        
+
         //let testcsv = await this.readcsv('1,2,3\n"4,4","5,5",6\n7,8,""9""');
         //console.log(testcsv);
-        
+
         this.parsecsv(csv, merge);
 
       } else if (thepath == logpath && filelost) {
@@ -4967,10 +5058,12 @@ export const TimeTrackerWindow = GObject.registerClass({
       // If the file exists
       const fileexists = file.query_exists(null);
       if (fileexists) {
+        console.log("File is found again.");
         clearInterval(this.filecheck);
         filelost = false;
-        this.filenotfounddialog.unparent();
-        this.filenotfounddialog.run_dispose();
+        //this.filenotfounddialog.unparent();
+        //this.filenotfounddialog.run_dispose();
+        this.filenotfounddialog.force_close();
         this.setsynctimer();
       }
     }, 1000);
@@ -5021,8 +5114,8 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._switcher_title.set_sensitive(false);
     this._menu.set_sensitive(false);
     this._stack.set_visible_child_name("page3");
-    
-    
+
+
     /*
     const dialog = new Adw.AlertDialog({
       heading: "Choose a Log File",
@@ -5165,14 +5258,14 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
   */
-  
-    async runbackups(deleteold = true) {
+
+  async runbackups(deleteold = true) {
     console.log("Trying to do a backup");
     try {
       const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
       const directory = Gio.File.new_for_path(filepath);
       if (!directory.query_exists(null)) {
-        success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
+        await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
       } else {
         const iter = await directory.enumerate_children_async('standard::*',
             Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
@@ -5184,10 +5277,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         // Check if a backup was made today
         let today = new Date();
-        const ID = today.getTime();
-        
+        //const ID = today.getTime();
+
         let logname = logpath.split("/")[logpath.split("/").length - 1];
-        
+
         let todaysname = "backup_" + today.getFullYear() +
         "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
         this.intto2digitstring(today.getDate()) + "_" + today.getTime() + "_" + logname;
@@ -5198,6 +5291,55 @@ export const TimeTrackerWindow = GObject.registerClass({
 
 
         // Clean up extra backups according to numberofbackups
+        if (deleteold) {
+          files.sort();
+          let numberofbackups = 7;
+          try {
+            numberofbackups = this._settings.get_int("numberofbackups");
+          } catch (_) {}
+
+          // Collect all backup files
+          let backupfiles = files.filter(f => f.indexOf("backup_") > -1);
+
+          // Group by logname (everything after the third underscore)
+          let byLogname = {};
+          for (let f of backupfiles) {
+            let parts = f.split("_");
+            // filename: backup_YYYY-MM-DD_timestamp_logname(may contain underscores)
+            let logname = parts.slice(3).join("_");
+            if (!byLogname[logname]) byLogname[logname] = [];
+            byLogname[logname].push(f);
+          }
+
+          let filestodelete = [];
+          for (let logname of Object.keys(byLogname)) {
+            let group = byLogname[logname];
+
+            // Extract unique days for this logname, sorted ascending
+            let uniqueDays = [...new Set(
+              group.map(f => f.split("_")[1])    // e.g. "2025-03-13"
+            )].sort();
+
+            // Keep the last [numberofbackups] days — delete everything older
+            let daystokeep = new Set(uniqueDays.slice(-numberofbackups));
+
+            for (let f of group) {
+              if (!daystokeep.has(f.split("_")[1])) {
+                filestodelete.push(f);
+              }
+            }
+          }
+
+          // Delete filestodelete
+          if (filestodelete.length > 0) {
+            for (let i = 0; i < filestodelete.length; i++) {
+              const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
+              await file.delete_async(GLib.PRIORITY_DEFAULT, null);
+            }
+            console.log("Deleted old backups: " + filestodelete);
+          }
+        }
+        /*
         // Will not delete any backups created less than [numberofbackups+1] days ago
         if (deleteold) {
           files.sort();
@@ -5235,13 +5377,14 @@ export const TimeTrackerWindow = GObject.registerClass({
             }
             console.log("Deleted old backups: " + filestodelete);
           }
-        }
+          */
+
       }
     } catch (e) {
       console.log("Tried to save backup, but failed: " + e);
     }
   }
-  
+
   async findbackup(countfromlast = 0) {
     try {
       const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
@@ -5257,19 +5400,19 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         files.sort();
         let count = 0;
-        
+
         let logname = logpath.split("/")[logpath.split("/").length - 1];
 
         for (let i = files.length - 1; i > -1; i--) {
           // Validate that it is a backup by using the filename
           let parts = files[i].split("_");
           if (parts[0] == "backup" && parts[parts.length - 1] == logname) {
-            if (!isNaN(parseInt(parts[1].split("-")[0])) && !isNaN(parseInt(parts[1].split("-")[1])) 
+            if (!isNaN(parseInt(parts[1].split("-")[0])) && !isNaN(parseInt(parts[1].split("-")[1]))
                 && !isNaN(parseInt(parts[1].split("-")[2]))) {
               if (!isNaN(parseInt(parts[2]))) {
                 if (count == countfromlast) {
                   return files[i];
-                  break;
+                  //break;
                 } else {
                   count++;
                 }
@@ -5278,9 +5421,9 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         }
       }
-      
+
       return null;
-      
+
     } catch (e) {
       console.log(e);
     }
@@ -5294,6 +5437,238 @@ export const TimeTrackerWindow = GObject.registerClass({
       console.log(e);
     }
   }
+
+// Claude
+formatWriteOnlyColumn(header, entry) {
+  // Determine data source: %b = start, %e = end, %l = duration
+  let date = null;
+  let isDuration = false;
+  let durationSeconds = 0;
+  header = header.replace(/%%/g, '!~~!');
+  if (/%b/.test(header)) {
+    date = entry.start instanceof Date ? entry.start : null;
+  } else if (/%e/.test(header)) {
+    date = entry.end instanceof Date ? entry.end : null;
+  } else if (/%l/.test(header)) {
+    isDuration = true;
+    if (entry.start instanceof Date && entry.end instanceof Date) {
+      durationSeconds = Math.floor((entry.end - entry.start) / 1000);
+    }
+  }
+  // Replace tokens in order (longest/most-specific first to avoid partial matches)
+  let result = header;
+  // Strip the leading source token
+  result = result.replace(/^%[bel]/, '');
+  if (isDuration) {
+    // Duration tokens
+    const h = Math.floor(durationSeconds / 3600);
+    const m = Math.floor((durationSeconds % 3600) / 60);
+    const s = durationSeconds % 60;
+    result = result
+      .replace(/%s/g, String(durationSeconds))
+      .replace(/%H/g, String(h).padStart(2, '0'))
+      .replace(/%M/g, String(m).padStart(2, '0'))
+      .replace(/%S/g, String(s).padStart(2, '0'))
+      .replace(/!~~!/g, '%');
+    // If no time tokens, just output total seconds as fallback
+    if (/%/.test(result)) {
+      console.log('Unrecognized tokens in write-only column: ' + header);
+    }
+  } else {
+    if (!date) return ''; // No date available (e.g. timer still running)
+    const yyyy = date.getFullYear();
+    const yy   = String(yyyy).slice(-2);
+    const m    = date.getMonth() + 1;
+    const d    = date.getDate();
+    const H    = date.getHours();
+    const M    = date.getMinutes();
+    const S    = date.getSeconds();
+    const h    = H % 12 || 12;                          // 12-hour (1-12)
+    const p    = H < 12 ? 'AM' : 'PM';
+    const monthNames = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+    const dayNames   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+    // Week number (respects your existing first-day-of-week preference)
+    const getWeekNumber = (date, firstDay = this.firstdayofweek) => {
+      const startOfYear = new Date(date.getFullYear(), 0, 1);
+      const startDow = startOfYear.getDay();
+      const offset = (startDow - firstDay + 7) % 7;
+      const startOfFirstWeek = new Date(startOfYear);
+      startOfFirstWeek.setDate(1 - offset);
+      const diff = date - startOfFirstWeek;
+      return Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+    };
+
+    // Day of year
+    const startOfYear = new Date(date.getFullYear(), 0, 1);
+    const j = Math.floor((date - startOfYear) / (24 * 60 * 60 * 1000)) + 1;
+
+    // Quarter
+    const q = Math.ceil(m / 3);
+
+    // Unix timestamp
+    const u = Math.floor(date.getTime() / 1000);
+
+    // UTC offset (+HH:MM)
+    const offsetMinutes = -date.getTimezoneOffset();
+    const offsetSign    = offsetMinutes >= 0 ? '+' : '-';
+    const offsetAbs     = Math.abs(offsetMinutes);
+    const O = offsetSign + String(Math.floor(offsetAbs / 60)).padStart(2, '0')
+            + ':' + String(offsetAbs % 60).padStart(2, '0');
+
+    // Get both forms from a formatted date string
+    const shortTZ = date.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
+    const longTZ  = date.toLocaleTimeString('en-US', { timeZoneName: 'long' }).split(' ').pop();
+
+    result = result
+      // Time Zone (longest first)
+      .replace(/%ZZ/g,   longTZ)
+      .replace(/%Z/g,    shortTZ)
+      .replace(/%O/g,    O)
+      // Year (most specific first)
+      .replace(/%yyyy/g, String(yyyy))
+      .replace(/%yy/g,   yy)
+      // Month
+      .replace(/%mn/g,   monthNames[m - 1])
+      .replace(/%mm/g,   String(m).padStart(2, '0'))
+      .replace(/%m/g,    String(m))
+      // Day of week
+      .replace(/%D/g,    dayNames[date.getDay()])
+      // Day
+      .replace(/%dd/g,   String(d).padStart(2, '0'))
+      .replace(/%d/g,    String(d))
+      // Time
+      .replace(/%H/g,    String(H).padStart(2, '0'))
+      .replace(/%h/g,    String(h))
+      .replace(/%M/g,    String(M).padStart(2, '0'))
+      .replace(/%S/g,    String(S).padStart(2, '0'))
+      .replace(/%p/g,    p)
+      // Calendar extras
+      .replace(/%W/g,    String(getWeekNumber(date)))
+      .replace(/%y/g,    String(j))
+      .replace(/%q/g,    String(q))
+      .replace(/%u/g,    String(u))
+      .replace(/!~~!/g,  '%');
+  }
+  return result;
+}
+
+javascript
+
+async editwriteonlycolumnsdialog() {
+  try {
+    const dialog = new Adw.AlertDialog({
+      heading: "Edit Write-Only Columns",
+      close_response: "cancel",
+    });
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("okay", "OK");
+    dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
+    const box = new Gtk.Box({
+      orientation: 1,
+      spacing: 12,
+    });
+    // --- Editor section ---
+    const editorlabel = new Gtk.Label({
+      label: "One column header per line.",
+      halign: 1,
+    });
+    box.append(editorlabel);
+    const frame = new Gtk.Frame();
+    const view = new Gtk.TextView({
+      editable: true,
+      bottom_margin: 4,
+      top_margin: 4,
+      left_margin: 4,
+      right_margin: 4,
+    });
+    const { buffer } = view;
+    buffer.set_text(sync_writeonly_columns.join("\n"), -1);
+    frame.set_child(view);
+    box.append(frame);
+    // --- Cheat sheet section ---
+    const cheatlabel = new Gtk.Label({
+      margin_top: 6,
+      halign: 1,
+    });
+    cheatlabel.set_markup("<b>Format Code Cheat Sheet</b>");
+    box.append(cheatlabel);
+    const cheatview = new Gtk.Label();
+    cheatview.set_wrap(true);
+    cheatview.set_text(
+`SOURCE TOKENS (use at start of header)
+%b  start date/time
+%e  end date/time
+%l  duration (time between start and end)
+%%  literal percent sign
+DURATION TOKENS (use with %l)
+%s   total seconds (e.g. 3661)
+%H   hours, zero-padded (e.g. 01)
+%M   minutes, zero-padded (e.g. 01)
+%S   seconds component, zero-padded (e.g. 01)
+DATE/TIME TOKENS (use with %b or %e)
+%yyyy  full year (e.g. 2025)
+%yy    two-digit year (e.g. 25)
+%mn    month name (e.g. January)
+%mm    month, zero-padded (e.g. 01)
+%m     month (e.g. 1)
+%D     weekday name (e.g. Wednesday)
+%dd    day, zero-padded (e.g. 05)
+%d     day (e.g. 5)
+%H     hour, 24-hour, zero-padded (e.g. 09)
+%h     hour, 12-hour (e.g. 9)
+%p     AM/PM
+%M     minute, zero-padded (e.g. 05)
+%S     second, zero-padded (e.g. 07)
+%ZZ    time zone, long (e.g. Eastern Standard Time)
+%Z     time zone, short (e.g. EST)
+%O     UTC offset (e.g. -05:00)
+%u     Unix timestamp (e.g. 1735544025)
+%W     week number
+%y     day of year (e.g. 364)
+%q     quarter (e.g. 4)
+EXAMPLES
+%l%H:%M:%S       → 01:01:01
+%l%s             → 3661
+%b%yyyy-%mm-%dd  → 2025-12-30
+%b%H:%M:%S       → 09:05:07
+%e%h:%M:%S %p    → 9:05:07 AM`);
+    const scrolled = new Gtk.ScrolledWindow({
+      min_content_height: 150,
+      max_content_height: 250,
+    });
+    scrolled.set_child(cheatview);
+    box.append(scrolled);
+    dialog.set_extra_child(box);
+    dialog.connect("response", (_, response_id) => {
+      dialogsopen -= 1;
+      if (response_id === "okay") {
+        let newcolumns = buffer.get_text(
+          buffer.get_start_iter(),
+          buffer.get_end_iter(),
+          false,
+        );
+        // Clean up input
+        newcolumns = newcolumns.trim();
+        newcolumns = newcolumns.replace(/\n\n/g, "\n");
+        const lines = newcolumns.split("\n");
+        sync_writeonly_columns = [];
+        for (let i = 0; i < lines.length; i++) {
+          const col = lines[i].trim();
+          if (col !== "" && sync_writeonly_columns.indexOf(col) === -1) {
+            sync_writeonly_columns.push(col);
+          }
+        }
+        changestobemade = true;
+      }
+    });
+    dialog.present(this);
+    dialogsopen += 1;
+  } catch (e) {
+    console.log(e);
+  }
+}
 
   /*
   async preferencesdialog() {

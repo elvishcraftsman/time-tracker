@@ -46,11 +46,4 @@
     </release>
   </releases>
   <url type="homepage">https://github.com/elvishcraftsman/time-tracker</url>
-  <keywords>
-    <keyword>time tracker</keyword>
-    <keyword>time management</keyword>
-    <keyword>project tracking</keyword>
-    <keyword>csv file</keyword>
-    <keyword>local sync</keyword>
-  </keywords>
 </component>

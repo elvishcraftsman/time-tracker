@@ -167,7 +167,7 @@
                 <property name="child">
                   <object class="GtkScrolledWindow" id="logscroll">
                     <property name="child">
-                      
+
                   <object class="GtkBox">
                     <property name="orientation">1</property>
                     <property name="margin-start">24</property>
@@ -338,7 +338,7 @@
                       </child>
                     </object>
 
-                      
+
                     </property>
                   </object>
                 </property>
@@ -378,6 +378,12 @@
       <item>
         <attribute name="label" translatable="yes">_Store Logs in System Folder</attribute>
         <attribute name="action">win.system</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_Edit Log's Extra Columns</attribute>
+        <attribute name="action">win.editcolumns</attribute>
       </item>
     </section>
     <section>
