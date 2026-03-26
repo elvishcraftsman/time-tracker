@@ -93,9 +93,6 @@ let changestobemade = false;
 let ampmformat = true;
 let nochange = false;
 let sync_interval = 1000;
-let tick = 0;
-let nexttick = 0;
-let sync_operation = 0; // Is a current operation trying to sync?
 let sync_changes = []; // Changes to be synced
 // type, project, start, stop, ID, oldproject, oldstart, oldstop, undone
 let sync_extraentries = []; // Entries not to be read into entries array, but to be written to the log file
@@ -106,8 +103,6 @@ let sync_fullstop = false;
 let filelost = false;
 let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
-let nav_pages = [];
-let nav_current = 0;
 let version = "2.1.8";
 let dialogsopen = 0;
 let logdays = [];
@@ -326,29 +321,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     });
 
-    /* Defining the model for the log
-    this.logmodel = new Gtk.StringList();
-
-    // Defining the searching and filtering model
-    // {{{ some of this code can be removed
-    const search_expression = Gtk.PropertyExpression.new(
-      Gtk.StringObject,
-      null,
-      "string",
-    );
-    const filter = new Gtk.StringFilter({
-      expression: search_expression,
-      ignore_case: true,
-      match_mode: Gtk.StringFilterMatchMode.SUBSTRING,
-    });
-    const filter_model = new Gtk.FilterListModel({
-      model: this.logmodel,
-      filter: filter,
-      incremental: true,
-    });
-    //this._list_box_editable.bind_model(filter_model, this.createItemForFilterModel);
-    */
-
     // Connecting the add entry button with the proper function
     this._add.connect("clicked", () => {
       this.editentrydialog();
@@ -357,18 +329,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     // Display custom report controls
     const controls = this.reportcontrols(reports[0]);
     this._reportcontrols.append(controls);
-
-    // Opening edit/delete dialog when a log row is selected
-    /*
-    this._list_box_editable.connect("row-selected", () => {
-      const selectedRow = this._list_box_editable.get_selected_row();
-      if (selectedRow) {
-        const index = selectedRow.get_index();
-        this._list_box_editable.unselect_all();
-        this.editentrydialog(entries.length - 1 - index);
-      }
-    });
-    */
 
     // Connecting the preferences button with the proper function
     const prefsAction = new Gio.SimpleAction({name: 'preferences'});
@@ -635,30 +595,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     clearInterval(sync_timer);
     let currentsync = new Date();
 
-    /* Removing this backup code for now in favor of more aggressive backups
-    tick += 1;
-    // Run backups
-    try {
-      if (tick >= nexttick) {
-        // Set up tomorrow's backup at 1 AM if the program isn't closed
-        const now = new Date();
-        const nextmorning = new Date();
-        nextmorning.setDate(now.getDate() + 1);
-        nextmorning.setHours(1, 0, 0, 0);
-        const tickstogo = Math.floor((nextmorning - now) / sync_interval);
-        nexttick += tickstogo;
-
-        // Run auto backup
-        this.runbackups();
-
-        // Redo reports {why?}
-        this.updatetotals();
-      }
-    } catch (_) {
-      // Backups failed
-    }
-    */
-
     // If there are any changes to write out, write them out
     if (changestobemade) {
       console.log("Sync has detected changes to be made: " + changestobemade);
@@ -797,8 +733,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       clearInterval(sync_timer);
     }
     sync_firsttime = false;
-    tick = 0;
-    nexttick = 300000 / sync_interval; // The next time to check for daily activities (5 min from now)
     sync_timer = setInterval(() => this.sync(), sync_interval);
     console.log("Syncing has been initiated.");
   }
@@ -1079,7 +1013,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     try {
       const file = Gio.File.new_for_path(filepath);
       console.log("Writing to " + filepath);
-      //sync_operation = 2;
       // Save the file (asynchronously)
       let contentsBytes = new GLib.Bytes(text)
       await file.replace_contents_bytes_async(
@@ -1092,7 +1025,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         console.log(`Saved to file ${filepath}`);
       }
     } catch (e) {
-      //sync_operation = 0;
       logError(`Unable to save to ${filepath}: ${e.message}`);
 
       if (filepath == logpath) {
@@ -1270,19 +1202,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       let timesstyle = box1.get_style_context();
       timesstyle.add_class("linked");
       box0.append(box1);
-
-      /*
-      const box2 = new Gtk.Box({
-        orientation: 1,
-      });
-      box0.append(box2);
-      */
-
-      /*
-      const endlabel = new Gtk.Label();
-      endlabel.label = "End Time";
-      box2.append(endlabel);
-      */
 
       const startb = new Gtk.Button();
       let startbstyle = startb.get_style_context();
@@ -1787,18 +1706,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       spin.set_range(1, Math.ceil(logdays.length / numberofdays));
       spin.set_value(number);
-      /*
-      const frame = new Gtk.Frame();
-      const view = new Gtk.TextView({
-        editable: true,
-        bottom_margin: 4,
-        top_margin: 4,
-        left_margin: 4,
-        right_margin: 4,
-      });
-      const { buffer } = view;
-      frame.set_child(view);
-      */
+
       dialog.set_extra_child(spin);
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.SUGGESTED);
@@ -1806,17 +1714,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       dialog.connect("response", (_, response_id) => {
         dialogsopen -= 1;
         if (response_id === "okay") {
-          /*
-          let gotopage = buffer.get_text(
-            buffer.get_start_iter(),
-            buffer.get_end_iter(),
-            false,
-          );
-          // Remove leading and trailing line breaks
-          gotopage = gotopage.trim();
 
-          logpage = parseInt(gotopage) - 1;
-          */
           logpage = spin.get_value() - 1;
           this.loadnextpage();
         }
@@ -1997,14 +1895,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     changestobemade = writeout;
   }
 
-  // Something to do with searching the log control
-  createItemForFilterModel(listItem) {
-    const listRow = new Adw.ActionRow({
-      title: listItem.string,
-    });
-    return listRow;
-  }
-
   // Replace the current projects with the given projects in the array.
   // If a project was selected already, try to select that same project when the projectlist reloads.
   async setprojects(projectArray = []) {
@@ -2168,13 +2058,6 @@ export const TimeTrackerWindow = GObject.registerClass({
   // Update the reports
   async updatetotals() {
     try {
-      /*
-        - destroys all existing reporting widgets (all children of this._nav_view)
-        - empties filters[] and nav_pages[]
-        - reads through the list of reports, creating each one with displayfilter(reports[0]);
-        - creates custom report with displaycustomfilter();
-      */
-      //this.firstdayofweek = this._settings.get_int("firstdayofweek");
 
       for (let i = 0; i < 100; i++) {
         let child = this._presetreports.get_first_child();
@@ -2852,72 +2735,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  // Find the total time between two dates, and output it by project
-  // To get all the time entries, make the two dates null
-  createtotals(startDate, endDate) {
-    try {
-      let allt = true;
-      if (startDate && endDate) {
-        allt = false;
-      }
-
-      let totals = [{project: "Total", total: 0}];
-
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i];
-
-        let start = entry.start;
-        let end = entry.end;
-
-        if (end && !isNaN(end) && !isNaN(start) && (allt || (start < endDate && end > startDate))) {
-          if (!allt) {
-            if (start < startDate) {
-              start = startDate;
-            }
-            if (end > endDate) {
-              end = endDate;
-            }
-          }
-          let sum = this.calcTimeDifference(start, end, false);
-          if (sum > 0) {
-            totals[0].total += sum;
-
-            // Check if project already exists in totals
-            let found = false;
-
-            for (let j = 0; j < totals.length; j++) {
-              const total = totals[j];
-              if (total.project === entry.project) {
-                total.total += sum;
-                found = true;
-                break;
-              }
-            }
-
-            // If project doesn't exist, add it to totals
-            if (!found) {
-              totals.push({ project: entry.project, total: sum });
-            }
-          }
-        }
-      }
-
-      let resultString = "";
-      for (let i = 0; i < totals.length; i++) {
-        let thetotal = this.secondstoOutput(totals[i].total);
-        resultString += totals[i].project + ": " + thetotal;
-
-        if (i !== totals.length - 1) {
-          resultString += "\n";
-        }
-      }
-
-      return resultString;
-    } catch (e) {
-      console.log(e);
-    }
-  }
-
   async bulkeditentries(entrygroup, newproject, newbilled, startDate = null, endDate = null) {
     try {
 
@@ -3023,33 +2840,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       dialog.add_response("cancel", "Cancel");
       dialog.add_response("okay", "Apply Changes");
-      /*
-      let startDate = start;
-
-      let endDate = end;
-
-      let body = "";
-      if (!startDate && !endDate && !theproject && billed == null) {
-        body = "Edit ALL entries.";
-      } else {
-        body = "Edit all entries that meet the following conditions:";
-        if (startDate) {
-          body += "\nAfter " + this.datetotext(startDate, ", ");
-        }
-        if (endDate) {
-          body += "\nBefore " + this.datetotext(endDate, ", ");
-        }
-        if (theproject) {
-          body += "\nProject: " + theproject;
-        }
-        if (billed) {
-          body += "\nBilled: Yes";
-        } else if (billed == false) {
-          body += "\nBilled: No";
-        }
-      }
-      dialog.body = body;
-      */
 
       dialog.set_response_appearance("okay", Adw.ResponseAppearance.DESTRUCTIVE);
 
@@ -3309,13 +3099,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
         });
       });
-      /*
-      const addcontent = new Adw.ButtonContent({
-        label: "New Report",
-        icon_name: "list-add-symbolic",
-      });
-      add.set_child(addcontent);
-      */
+
       box1.append(add);
 
       const edit = new Gtk.Button({
@@ -3423,22 +3207,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           const row = new Adw.ActionRow();
           row.title = report.title;
           listbox.append(row);
-          /*
-          const button = new Gtk.Button({
-            label: report.title,
-          });
-          button.connect("clicked", () => {
-            this.reportdialog(report, (response) => {
-              if (response == "okay") {
-                button.label = report.title;
-              } else if (response == "delete") {
-                button.unparent();
-                button.run_dispose();
-              }
-            });
-          });
-          box.append(button);
-          */
+
         }
       }
       box.append(listbox);
@@ -4432,13 +4201,11 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (entries[latestStartIndex].meta) {
               new_item += "\n" + entries[latestStartIndex].meta;
             }
-            //this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, [new_item]);
             this.updatelog();
           }
         } else {
           // Add to the visible log contents
 
-          //this.logmodel.splice(0, 0, new_items);
 
           if (!logging) {
             // Start logging timer for the latest still running entry
@@ -4446,7 +4213,6 @@ export const TimeTrackerWindow = GObject.registerClass({
               this.startTimer(latestStartIndex + modelLength, latestStartDate);
               // Set that entry as [logging]
 
-              //this.logmodel.splice(entries.length - 1 - latestStartIndex, 1, ["[logging] | Project: " + entries[latestStartIndex].project]);
             }
           } else {
             // Check if the latestStart is later than the currently logging entry
@@ -4455,13 +4221,11 @@ export const TimeTrackerWindow = GObject.registerClass({
               if (entries[current].start < latestStartDate) {
                 // Set that entry as [???????]
 
-                //this.logmodel.splice(entries.length - 1 - current, 1, ["[???????] | Project: " + entries[current].project]);
                 this.stopTimer();
 
                 this.startTimer(latestStartIndex + modelLength, latestStartDate);
                 // Set that entry as [logging]
 
-                //this.logmodel.splice(entries.length - 1 - current, 1, ["[logging] | Project: " + entries[current].project]);
                 this.updatelog();
               }
             }
@@ -5116,39 +4880,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     this._stack.set_visible_child_name("page3");
 
 
-    /*
-    const dialog = new Adw.AlertDialog({
-      heading: "Choose a Log File",
-      close_response: "cancel",
-    });
 
-    dialog.body = "Before you start using Time Tracker, choose where " +
-      "to store your time logs. You can also edit other settings, like " +
-      "the first day of the week, in Time Tracker preferences.";
-
-    dialog.add_response("option1", "Use App's System Folder");
-    dialog.add_response("option2", "Create New Log");
-    dialog.add_response("option3", "Use Existing Log");
-    dialog.add_response("cancel", "Close App");
-    dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE);
-
-    dialog.connect("response", async (_, response_id) => {
-      dialogsopen -= 1;
-      if (response_id === "cancel") {
-        this.close();
-      } else if (response_id === "option2") {
-        this.newlog(true);
-      } else if (response_id === "option3") {
-        this.openlog(true);
-      } else {
-        // system folder
-        this.usesystemfolder();
-      }
-    });
-
-    dialog.present(this);
-    dialogsopen += 1;
-    */
   }
 
   async usesystemfolder() {
@@ -5176,88 +4908,6 @@ export const TimeTrackerWindow = GObject.registerClass({
     //        console.log(8);
     //this.setsynctimer();
   }
-
-  /* Rewriting this to do more aggressive backups
-  async runbackups(deleteold = true) {
-    console.log("Trying to do a backup");
-    try {
-      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
-      const directory = Gio.File.new_for_path(filepath);
-      if (!directory.query_exists(null)) {
-        success = await directory.make_directory_async(GLib.PRIORITY_DEFAULT, null);
-      } else {
-        const iter = await directory.enumerate_children_async('standard::*',
-            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, GLib.PRIORITY_DEFAULT, null);
-
-        // Find all files in directory
-        let files = [];
-        for await (const fileInfo of iter)
-            files.push(fileInfo.get_name());
-
-        // Check if a backup was made today
-        let today = new Date();
-        let todaysname = "backup_" + today.getFullYear() +
-        "-" + this.intto2digitstring(today.getMonth()+1) + "-" +
-        this.intto2digitstring(today.getDate()) + ".csv";
-        let todaysbackup = files.indexOf(todaysname);
-
-        if (todaysbackup == -1) {
-          // Run backup
-          await this.createfile(filepath + "/" + todaysname);
-          await this.writelog(filepath + "/" + todaysname, null, false);
-          console.log("Saved a backup for today");
-          files.push(todaysname);
-        } else {
-          console.log("No backup needed");
-        }
-
-        // Clean up extra backups according to numberofbackups
-        // Keeps the [numberofbackups] newest backups, but will not delete any backups created less than [numberofbackups+1] days ago
-        if (deleteold) {
-          files.sort();
-          let filestodelete = [];
-            let numberofbackups = 7;
-          try {
-            numberofbackups = this._settings.get_int("numberofbackups");
-          } catch (_) {
-          }
-          let todelete = new Date();
-          todelete.setDate(today.getDate() - numberofbackups - 1);
-          //console.log(todelete);
-          let number = 0;
-          for (let i = files.length - 1; i > -1; i--) {
-            if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
-              number += 1;
-              let tosearch = files[i].split("_")[1];
-              tosearch = tosearch.split(".")[0];
-              let dateoffile = new Date();
-              dateoffile.setFullYear(parseInt(tosearch.split("-")[0]));
-              dateoffile.setMonth(parseInt(tosearch.split("-")[1])-1);
-              dateoffile.setDate(parseInt(tosearch.split("-")[2]));
-              //console.log(tosearch);
-              //console.log(dateoffile);
-              if (dateoffile < todelete && number > numberofbackups) {
-                filestodelete.push(files[i]);
-              }
-            }
-          }
-
-          // Delete filestodelete
-          if (filestodelete.length > 0) {
-            for (let i = 0; i < filestodelete.length; i++) {
-              const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
-
-              await file.delete_async(GLib.PRIORITY_DEFAULT, null);
-            }
-            console.log("Deleted old backups: " + filestodelete);
-          }
-        }
-      }
-    } catch (e) {
-      console.log("Tried to save backup, but failed: " + e);
-    }
-  }
-  */
 
   async runbackups(deleteold = true) {
     console.log("Trying to do a backup");
@@ -5339,46 +4989,6 @@ export const TimeTrackerWindow = GObject.registerClass({
             console.log("Deleted old backups: " + filestodelete);
           }
         }
-        /*
-        // Will not delete any backups created less than [numberofbackups+1] days ago
-        if (deleteold) {
-          files.sort();
-          let filestodelete = [];
-            let numberofbackups = 7;
-          try {
-            numberofbackups = this._settings.get_int("numberofbackups");
-          } catch (_) {
-          }
-          let todelete = new Date();
-          todelete.setDate(today.getDate() - numberofbackups - 1);
-          //console.log(todelete);
-          for (let i = files.length - 1; i > -1; i--) {
-            if (files[i].indexOf("backup_" + today.getFullYear()) > -1 || files[i].indexOf("backup_" + today.getFullYear())-1 > -1) {
-              let tosearch = files[i].split("_")[1];
-              tosearch = tosearch.split(".")[0];
-              let dateoffile = new Date();
-              dateoffile.setFullYear(parseInt(tosearch.split("-")[0]));
-              dateoffile.setMonth(parseInt(tosearch.split("-")[1])-1);
-              dateoffile.setDate(parseInt(tosearch.split("-")[2]));
-              //console.log(tosearch);
-              //console.log(dateoffile);
-              if (dateoffile < todelete) {
-                filestodelete.push(files[i]);
-              }
-            }
-          }
-
-          // Delete filestodelete
-          if (filestodelete.length > 0) {
-            for (let i = 0; i < filestodelete.length; i++) {
-              const file = Gio.File.new_for_path(filepath + "/" + filestodelete[i]);
-
-              await file.delete_async(GLib.PRIORITY_DEFAULT, null);
-            }
-            console.log("Deleted old backups: " + filestodelete);
-          }
-          */
-
       }
     } catch (e) {
       console.log("Tried to save backup, but failed: " + e);
@@ -5670,103 +5280,5 @@ EXAMPLES
   }
 }
 
-  /*
-  async preferencesdialog() {
-    try {
-      const dialog = new Adw.AlertDialog({
-        heading: "Preferences",
-        close_response: "cancel",
-      });
-      dialog.add_response("cancel", "Done");
-
-      const box = new Gtk.Box({
-        orientation: 1,
-        spacing: 6,
-      });
-
-      const label = new Gtk.Label({
-        label: "What day should be the first day\nof the week in reports?",
-      });
-      box.append(label);
-
-      const weeklist = new Gtk.DropDown({
-        enable_search: true,
-        margin_bottom: 16,
-      });
-      box.append(weeklist);
-
-      // Set the weeklist contents
-      weeklist.expression = weekexpression;
-      weeklist.model = weekmodel;
-      weeklist.set_selected(this.firstdayofweek);
-      weeklist.connect("notify::selected-item", () => {
-        this.firstdayofweek = weeklist.get_selected();
-        this._settings.set_int("firstdayofweek", this.firstdayofweek);
-        this.updatetotals();
-      });
-
-      const group1 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group1.set_title("Import Projects from Log");
-      group1.set_description("When opening a new log file, add its project names to the list of available projects.");
-      const project_switch = new Adw.SwitchRow();
-      group1.add(project_switch);
-      box.append(group1);
-      project_switch.set_active(addprojectsfromlog);
-      project_switch.connect("notify::active", () => {
-        addprojectsfromlog = project_switch.get_active();
-        this._settings.set_boolean("addprojectsfromlog", addprojectsfromlog);
-      });
-
-      const group2 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group2.set_title("12-Hour Format");
-      group2.set_description("Should Time Tracker use 12-hour time format (AM/PM), instead of 24-hour time format?");
-      const time_switch = new Adw.SwitchRow();
-      group2.add(time_switch);
-      box.append(group2);
-      time_switch.set_active(ampmformat);
-      time_switch.connect("notify::active", () => {
-        ampmformat = time_switch.get_active();
-        this._settings.set_boolean("ampmformat", ampmformat);
-      });
-
-      const group3 = new Adw.PreferencesGroup({
-        margin_bottom: 16,
-      });
-      group3.set_title("Use Temporary Logs");
-      group3.set_description("Should Time Tracker automatically use temporary logs when it can't access the main log, instead of asking every time?");
-      const temp_switch = new Adw.SwitchRow();
-      group3.add(temp_switch);
-      box.append(group3);
-      temp_switch.set_active(sync_autotemplog);
-      temp_switch.connect("notify::active", () => {
-        sync_autotemplog = temp_switch.get_active();
-        this._settings.set_boolean("autotemplog", sync_autotemplog);
-      });
-
-      let loglabel = new Gtk.Label({
-        label: "Set Time Tracker to store logs in the app's\nsystem folder, instead of in a user-specified file?",
-      });
-
-      const sysbutton = new Gtk.Button();
-      sysbutton.label = "Store Logs in App's System Folder";
-      sysbutton.connect("clicked", () => {
-        this.usesystemfolder();
-        this.savedialog();
-        loglabel.label = "Now storing logs in app's system folder.";
-      });
-      box.append(loglabel);
-      box.append(sysbutton);
-
-      dialog.set_extra_child(box);
-      dialog.present(this);
-    } catch (e) {
-      console.log(e);
-    }
-  }
-  */
 });
 
