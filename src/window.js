@@ -907,7 +907,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (entries[i].billed == true) {
             billed = true;
           }
-          if (entries[i].meta) {
+          if (entries[i].meta != null) {
             meta = this.addquotes(entries[i].meta);
           }
         } catch (e) {
@@ -975,7 +975,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             entriesString += '\n,deleted,' + end.toString() + ',' + reason + ',' + ID.toString() + "," + columnPadding;
           } else {
             let project = sync_extraentries[i].project;
-            let meta = sync_extraentries[i].meta;
+            let meta = sync_extraentries[i].meta || "";
             let billed = sync_extraentries[i].billed;
             entriesString += '\n' + project + ',' + start.toString() + ',' + end.toString() + ',' + meta + ',' + ID.toString() + "," + billed.toString() + columnPadding;
           }
@@ -4106,7 +4106,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         // Preparing for the code that checks if there's a currently running entry, and the code that gets all the projects
         let latestStartDate = null;
         let latestStartIndex = -1;
-        let latestStartProject = "";
+        //let latestStartProject = "";
 
         // Defining the variable to be written to the visible log
         let new_items = [];
@@ -4125,7 +4125,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           let entry = readentries[i];
 
           // If the entry has a start date (that means it hasn't been deleted)
-          if (!isNaN(entry.start)) {
+          if (entry.start instanceof Date && !isNaN(entry.start)) {
             let new_item = "";
             // Make sure an empty project is set to "(no project)"
             if (entry.project == "") {
@@ -4150,7 +4150,7 @@ export const TimeTrackerWindow = GObject.registerClass({
                 // Set this entry to be the currently logging entry (unless a later one appears)
                 latestStartDate = entry.start;
                 latestStartIndex = i;
-                latestStartProject = entry.project;
+                //latestStartProject = entry.project;
               }
             } else {
               // If the entry has an end date, go ahead and add it to the new_items
@@ -4184,6 +4184,12 @@ export const TimeTrackerWindow = GObject.registerClass({
               sync_extraentries.push({ID: entry.ID, end: new Date(), reason: entry.meta});
             }
           } else { // save any unreadable entries
+
+            // In case a mistake happened earlier. This code might be able to be removed.
+            if (entry.start == "Invalid Date" && !isNaN(entry.end) && (entry.meta.includes("removeentry") || entry.meta.includes("[couldn't"))) {
+              entry.start = "deleted";
+            }
+
             sync_extraentries.push({ID: entry.ID, start: entry.start, end: entry.end, project: entry.project, meta: entry.meta, billed: entry.billed});
           }
         }
@@ -4211,7 +4217,6 @@ export const TimeTrackerWindow = GObject.registerClass({
             // Start logging timer for the latest still running entry
             if (latestStartIndex > -1) {
               this.startTimer(latestStartIndex + modelLength, latestStartDate);
-              // Set that entry as [logging]
 
             }
           } else {
@@ -4219,12 +4224,10 @@ export const TimeTrackerWindow = GObject.registerClass({
             let current = this.currentTimer();
             if (current) {
               if (entries[current].start < latestStartDate) {
-                // Set that entry as [???????]
 
                 this.stopTimer();
 
                 this.startTimer(latestStartIndex + modelLength, latestStartDate);
-                // Set that entry as [logging]
 
                 this.updatelog();
               }
@@ -4237,6 +4240,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       }
     } else {
       // If we are reading and potentially editing an already opened log
+      // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries
       for (let i = 0; i < readentries.length; i++) {
         const entry = readentries[i];
 
@@ -4595,8 +4599,15 @@ export const TimeTrackerWindow = GObject.registerClass({
 
         let startvalue = null;
         try {
-          startvalue = new Date(entry[startColumn]);
-        } catch (_) {}
+          const parsed = new Date(entry[startColumn]);
+          if (!isNaN(parsed)) {
+            startvalue = parsed;
+          } else {
+            startvalue = entry[startColumn];
+          }
+        } catch (_) {
+          startvalue = entry[startColumn];
+        }
 
         let billed = false;
         try {
@@ -4686,6 +4697,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
 
       }
+      //console.log(sync_extraentries);
+      //console.log(readentries[2100]);
       this.setentries(readentries, merge);
     }
   }
