@@ -315,7 +315,7 @@
                       </child>
                       <child>
                         <object class="GtkLabel">
-                          <property name="label">If you don't want to think about it, choose the following option.</property>
+                          <property name="label">If you don't want to think about it, choose the following option. This stores it in "~/.local/share/time-tracker/"</property>
                           <property name="justify">2</property>
                           <property name="margin-bottom">12</property>
                           <property name="wrap">1</property>
@@ -375,9 +375,11 @@
         <attribute name="label" translatable="yes">_Import CSV Log File</attribute>
         <attribute name="action">win.import</attribute>
       </item>
+    </section>
+    <section>
       <item>
-        <attribute name="label" translatable="yes">_Store Logs in System Folder</attribute>
-        <attribute name="action">win.system</attribute>
+        <attribute name="label" translatable="yes">_Open Backup Folder</attribute>
+        <attribute name="action">win.backups</attribute>
       </item>
     </section>
     <section>

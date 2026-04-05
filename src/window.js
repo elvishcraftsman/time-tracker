@@ -103,15 +103,16 @@ let sync_fullstop = false;
 let filelost = false;
 let sync_extracolumns = [];
 let reports = [{title: "Custom", start: null, end: null, filters: [ { project: null, billed: null, tag: null, client: null } ], groupby: [], }];
-let version = "2.1.8";
+let version = "2.2.0";
 let dialogsopen = 0;
 let logdays = [];
 let numberofdays = 7;
 let logpage = 0;
 let timerwidget;
-let numberofsyncproblems = 0;
+//let numberofsyncproblems = 0;
 let lastsync = new Date();
 let sync_writeonly_columns = []; // headers that contain % format codes
+let missingentriesdialogq = false;
 
 // Creating the "project" class for displaying in the projectlist item
 const project = GObject.registerClass(
@@ -227,8 +228,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       reports = reports.concat(this.settingstoreports(reportsetting));
     }
 
-    //console.log(this._settings.get_int("window-width"));
-
     // Applying the custom settings
     this.firstdayofweek = this._settings.get_int("firstdayofweek");
     sync_interval = this._settings.get_int("syncinterval") * 1000;
@@ -267,6 +266,11 @@ export const TimeTrackerWindow = GObject.registerClass({
     const importAction = new Gio.SimpleAction({name: 'import'});
     importAction.connect('activate', () => this.importlog());
     this.add_action(importAction);
+
+    // Connecting the "Open Backup Folder" button with the proper function
+    const backupsAction = new Gio.SimpleAction({name: 'backups'});
+    backupsAction.connect('activate', () => this.openDirectory(GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']), true));
+    this.add_action(backupsAction);
 
     // Connecting the "Use System Folder" button with the proper function
     const systemAction = new Gio.SimpleAction({name: 'system'});
@@ -591,6 +595,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           write those changes to the file.
     */
     try {
+    //console.log("syncing");
     // Stop sync timer
     clearInterval(sync_timer);
     let currentsync = new Date();
@@ -1038,11 +1043,8 @@ export const TimeTrackerWindow = GObject.registerClass({
   // This is used when the system, rather than the user, is removing an entry
   // Therefore, it doesn't affect sync_changes the same way
   async removeentrybyID(ID, reason = "") {
-    //console.log(ID);
-    //console.log(entries);
     const foundItem = entries.find(item => item.ID === ID);
     if (foundItem) {
-      //console.log(entries.indexOf(foundItem) + " " + foundItem);
       this.removeentrybyIndex(entries.indexOf(foundItem), true, reason + "removeentrybyID()");
     }
   }
@@ -1282,12 +1284,14 @@ export const TimeTrackerWindow = GObject.registerClass({
       });
       durationb.connect("clicked", () => {
         this.durationdialog(startDate, endDate, (date) => {
-          endDate = date;
-          endb.label = this.datetotext(date);
-          if (endDate != null) {
-            durationb.label = this.calcTimeDifference(startDate, endDate);
-          } else {
-            durationb.label = "Still Logging";
+          if (date != null) {
+            endDate = date;
+            endb.label = this.datetotext(date);
+            if (endDate != null) {
+              durationb.label = this.calcTimeDifference(startDate, endDate);
+            } else {
+              durationb.label = "Still Logging";
+            }
           }
         });
       });
@@ -1776,7 +1780,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     console.log("Preparing to edit " + number);
     // Stop the timer if the entry didn't have an end date, but does now
     if (entries[number].end == null && endDate != null) {
-      this.stopTimer();
+      await this.stopTimer();
     }
     entries[number].project = theproject;
     entries[number].start = startDate;
@@ -1810,8 +1814,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       this.updatetotals();
     }
 
-
-    // this.logmodel.splice(entries.length - 1 - number, 1, [new_item]);
     this.updatelog();
     console.log("editentrybyIndex() is queuing a change to write out: " + writeout);
     changestobemade = writeout;
@@ -2031,18 +2033,22 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Start the timer
   startTimer(number, startDate) {
-    logging = true;
-    startedTime = startDate;
-    timer = setInterval(() => this.setTimerText(), 1000);
-    currentTimer = entries[number].ID;
-    this.setTimerText();
-    this._starticon.set_icon_name("media-playback-stop-symbolic");
-    let style = this._startbutton.get_style_context();
-    if (style.has_class("suggested-action")) {
-      style.remove_class("suggested-action");
+    try {
+      logging = true;
+      startedTime = startDate;
+      timer = setInterval(() => this.setTimerText(), 1000);
+      currentTimer = entries[number].ID;
+      this.setTimerText();
+      this._starticon.set_icon_name("media-playback-stop-symbolic");
+      let style = this._startbutton.get_style_context();
+      if (style.has_class("suggested-action")) {
+        style.remove_class("suggested-action");
+      }
+      style.add_class("destructive-action");
+      console.log("Started entry # " + number + ", ID is " + currentTimer);
+    } catch (e) {
+      console.log(e);
     }
-    style.add_class("destructive-action");
-    console.log("Started entry # " + number + ", ID is " + currentTimer);
   }
 
   // Convert from seconds to output format
@@ -2741,8 +2747,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       // Clear undo and redo record, since it's not sophisticated enough yet to deal with bulk editing
       sync_changes = [];
 
-      // console.log(newproject + " " + newbilled);
-      // console.log(entrygroup);
       if (newproject || newbilled != null) {
         for (let i = 1; i < entrygroup.length; i++) {
           // Get the current info from that entry, entrygroup[i].ID
@@ -2819,7 +2823,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         if (response_id === "bulk") {
           this.bulkeditdialog(filteredentries, start, end);
         } else if (response_id === "export") {
-          this.exporttocsv(filteredentries, start, end, theproject, billed, tag, client);
+          this.exporttocsv(filteredentries); //, start, end, theproject, billed, tag, client);
         }
       });
 
@@ -3719,15 +3723,11 @@ export const TimeTrackerWindow = GObject.registerClass({
 
           let hourminute = hourminuteentry.get_text();
           let secondtext = secondentry.get_text();
-          if (hourminute != "" && secondtext != "") {
+          if (hourminute != "") {
             let hour = 0;
             let minute = 0;
-            //if (hourminute.length > 2) {
-              hour = Math.floor(parseInt(hourminute) / 100);
-              minute = parseInt(hourminute) - (hour * 100);
-            //} else {
-            //  hour = parseInt(hourminute);
-            //}
+            hour = Math.floor(parseInt(hourminute) / 100);
+            minute = parseInt(hourminute) - (hour * 100);
             let second = parseInt(secondtext);
             if (isNaN(second)) {
               second = 0;
@@ -4083,307 +4083,300 @@ export const TimeTrackerWindow = GObject.registerClass({
 
   // Replace all entries by importing an array of time entries
   async setentries(readentries, merge = false) {
-    let change = false;
-    let projectsfromlog = [];
-    let syncproblem = false;
+    try {
+      let change = false;
+      let projectsfromlog = [];
+      //let syncproblem = false;
+      let missingentries = [];
 
-    // Is this the first time this log file has been read since it was opened?
-    if (sync_firsttime) {
-      try {
-        // Let later code know that changes are being made
-        change = true;
+      // Is this the first time this log file has been read since it was opened?
+      if (sync_firsttime) {
+        try {
+          // Let later code know that changes are being made
+          change = true;
 
-        // Let later code know that the log was already read
-        sync_firsttime = false;
+          // Let later code know that the log was already read
+          sync_firsttime = false;
 
-        if (!merge) {
-          // Stop the timer, if any
-          if (logging) {
-            this.stopTimer();
-          }
-        }
-
-        // Preparing for the code that checks if there's a currently running entry, and the code that gets all the projects
-        let latestStartDate = null;
-        let latestStartIndex = -1;
-        //let latestStartProject = "";
-
-        // Defining the variable to be written to the visible log
-        let new_items = [];
-        // Recording how many entries there are currently, so that we can wipe them all out later
-        let modelLength = entries.length;
-
-        if (!merge) {
-          // Empty entries array
-          entries = [];
-          // Empty deleted entries array
-          sync_extraentries = [];
-        }
-
-        // Read through each of the new entries
-        for (let i = 0; i < readentries.length; i++) {
-          let entry = readentries[i];
-
-          // If the entry has a start date (that means it hasn't been deleted)
-          if (entry.start instanceof Date && !isNaN(entry.start)) {
-            let new_item = "";
-            // Make sure an empty project is set to "(no project)"
-            if (entry.project == "") {
-              entry.project = "(no project)";
+          if (!merge) {
+            // Stop the timer, if any
+            if (logging) {
+              this.stopTimer();
             }
+          }
 
-            // Now add this entry to the entries array
-            entries.push(entry);
+          // Preparing for the code that checks if there's a currently running entry, and the code that gets all the projects
+          let latestStartDate = null;
+          let latestStartIndex = -1;
+          //let latestStartProject = "";
 
-            // If the entry has no end date
-            if (entry.end === null) {
-              // Set the text of the item and add it to the new items for the visible log
-              new_item = "[???????] | Project: " + entry.project;
-              if (entry.meta) {
-                new_item += "\n" + entry.meta;
+          // Defining the variable to be written to the visible log
+          let new_items = [];
+          // Recording how many entries there are currently, so that we can wipe them all out later
+          let modelLength = entries.length;
+
+          if (!merge) {
+            // Empty entries array
+            entries = [];
+            // Empty deleted entries array
+            sync_extraentries = [];
+          }
+
+          // Read through each of the new entries
+          for (let i = 0; i < readentries.length; i++) {
+            let entry = readentries[i];
+
+            // If the entry has a start date (that means it hasn't been deleted)
+            if (entry.start instanceof Date && !isNaN(entry.start)) {
+              let new_item = "";
+              // Make sure an empty project is set to "(no project)"
+              if (entry.project == "") {
+                entry.project = "(no project)";
               }
 
-              new_items.unshift(new_item);
+              // Now add this entry to the entries array
+              entries.push(entry);
 
-              // Check if the start date of this still running entry is later than the current latest start date
-              if (latestStartDate === null || entry.start > latestStartDate) {
-                // Set this entry to be the currently logging entry (unless a later one appears)
-                latestStartDate = entry.start;
-                latestStartIndex = i;
-                //latestStartProject = entry.project;
+              // If the entry has no end date
+              if (entry.end === null) {
+                // Set the text of the item and add it to the new items for the visible log
+                new_item = "[???????] | Project: " + entry.project;
+                if (entry.meta) {
+                  new_item += "\n" + entry.meta;
+                }
+
+                new_items.unshift(new_item);
+
+                // Check if the start date of this still running entry is later than the current latest start date
+                if (latestStartDate === null || entry.start > latestStartDate) {
+                  // Set this entry to be the currently logging entry (unless a later one appears)
+                  latestStartDate = entry.start;
+                  latestStartIndex = i;
+                  //latestStartProject = entry.project;
+                }
+              } else {
+                // If the entry has an end date, go ahead and add it to the new_items
+                new_item =
+                  this.calcTimeDifference(entry.start, entry.end) + " | Project: " + entry.project;
+                if (entry.meta) {
+                  new_item += "\n" + entry.meta;
+                }
+                new_items.unshift(new_item);
+              }
+
+              // This code is the same as some that is described below
+              if (addprojectsfromlog) {
+                if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
+                  projectsfromlog.push(entry.project);
+                }
+              }
+            } else if (entry.start == "deleted") {
+              // This is a deleted entry
+              if (entry.end) {
+                // Remove any old deletions
+                // Create date that is eight days ago
+                let del = new Date();
+                del.setDate(del.getDate() - 8);
+
+                if (entry.end > del) {
+                  sync_extraentries.push({ID: entry.ID, end: entry.end, reason: entry.meta});
+                }
+              } else {
+                // Assign the dateless deletion a date
+                sync_extraentries.push({ID: entry.ID, end: new Date(), reason: entry.meta});
+              }
+            } else { // save any unreadable entries
+
+              // In case a mistake happened earlier. This code might be able to be removed.
+              if (entry.start == "Invalid Date" && !isNaN(entry.end) && (entry.meta.includes("removeentry") || entry.meta.includes("[couldn't"))) {
+                entry.start = "deleted";
+              }
+
+              sync_extraentries.push({ID: entry.ID, start: entry.start, end: entry.end, project: entry.project, meta: entry.meta, billed: entry.billed});
+            }
+          }
+          if (!merge) {
+            // Set the visible log contents
+            this.updatelog();
+
+            // Start logging timer for the latest still running entry
+            if (latestStartIndex > -1) {
+              this.startTimer(latestStartIndex, latestStartDate);
+              // Set that entry as [logging]
+              let new_item = "[logging] | Project: " + entries[latestStartIndex].project;
+
+              if (entries[latestStartIndex].meta) {
+                new_item += "\n" + entries[latestStartIndex].meta;
+              }
+              this.updatelog();
+            }
+
+            // Check to see if any entries went missing
+            missingentries = await this.comparewithbackup();
+
+          } else {
+            // Add to the visible log contents
+
+
+            if (!logging) {
+              // Start logging timer for the latest still running entry
+              if (latestStartIndex > -1) {
+                this.startTimer(latestStartIndex + modelLength, latestStartDate);
+
               }
             } else {
-              // If the entry has an end date, go ahead and add it to the new_items
-              new_item =
-                this.calcTimeDifference(entry.start, entry.end) + " | Project: " + entry.project;
-              if (entry.meta) {
-                new_item += "\n" + entry.meta;
+              // Check if the latestStart is later than the currently logging entry
+              let current = this.currentTimer();
+              if (current) {
+                if (entries[current].start < latestStartDate) {
+
+                  this.stopTimer();
+
+                  this.startTimer(latestStartIndex + modelLength, latestStartDate);
+
+                  this.updatelog();
+                }
               }
-              new_items.unshift(new_item);
-            }
-
-            // This code is the same as some that is described below
-            if (addprojectsfromlog) {
-              if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
-                projectsfromlog.push(entry.project);
-              }
-            }
-          } else if (entry.start == "deleted") {
-            // This is a deleted entry
-            if (entry.end) {
-              // Remove any old deletions
-              // Create date that is eight days ago
-              let del = new Date();
-              del.setDate(del.getDate() - 8);
-
-              if (entry.end > del) {
-                sync_extraentries.push({ID: entry.ID, end: entry.end, reason: entry.meta});
-              }
-            } else {
-              // Assign the dateless deletion a date
-              sync_extraentries.push({ID: entry.ID, end: new Date(), reason: entry.meta});
-            }
-          } else { // save any unreadable entries
-
-            // In case a mistake happened earlier. This code might be able to be removed.
-            if (entry.start == "Invalid Date" && !isNaN(entry.end) && (entry.meta.includes("removeentry") || entry.meta.includes("[couldn't"))) {
-              entry.start = "deleted";
-            }
-
-            sync_extraentries.push({ID: entry.ID, start: entry.start, end: entry.end, project: entry.project, meta: entry.meta, billed: entry.billed});
-          }
-        }
-        if (!merge) {
-          // Set the visible log contents
-          //this.logmodel.splice(0, modelLength, new_items);
-          this.updatelog();
-
-          // Start logging timer for the latest still running entry
-          if (latestStartIndex > -1) {
-            this.startTimer(latestStartIndex, latestStartDate);
-            // Set that entry as [logging]
-            let new_item = "[logging] | Project: " + entries[latestStartIndex].project;
-
-            if (entries[latestStartIndex].meta) {
-              new_item += "\n" + entries[latestStartIndex].meta;
             }
             this.updatelog();
           }
-        } else {
-          // Add to the visible log contents
-
-
-          if (!logging) {
-            // Start logging timer for the latest still running entry
-            if (latestStartIndex > -1) {
-              this.startTimer(latestStartIndex + modelLength, latestStartDate);
-
-            }
-          } else {
-            // Check if the latestStart is later than the currently logging entry
-            let current = this.currentTimer();
-            if (current) {
-              if (entries[current].start < latestStartDate) {
-
-                this.stopTimer();
-
-                this.startTimer(latestStartIndex + modelLength, latestStartDate);
-
-                this.updatelog();
-              }
-            }
-          }
-          this.updatelog();
+        } catch (e) {
+          console.log(e);
         }
-      } catch (e) {
-        console.log(e);
-      }
-    } else {
-      // If we are reading and potentially editing an already opened log
-      // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries
-      for (let i = 0; i < readentries.length; i++) {
-        const entry = readentries[i];
+      } else {
+        // If we are reading and potentially editing an already opened log
+        // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries
+        for (let i = 0; i < readentries.length; i++) {
+          const entry = readentries[i];
 
-        // Does the current entry already exist?
-        const foundItem = entries.find(item => item.ID === entry.ID);
-        if (foundItem) {
-          let spot = entries.indexOf(foundItem);
+          // Does the current entry already exist?
+          const foundItem = entries.find(item => item.ID === entry.ID);
+          if (foundItem) {
+            let spot = entries.indexOf(foundItem);
 
-          // Create a buffer between the actual dates and checking them, to keep from trying to convert a null value to string
-          let s1 = "";
-          let s2 = "";
-          let e1 = "";
-          let e2 = "";
-          if (entry.start) {
-            s1 = entry.start.toString()
-          }
-          if (entries[spot].start) {
-            s2 = entries[spot].start.toString()
-          }
-          if (entry.end) {
-            e1 = entry.end.toString()
-          }
-          if (entries[spot].end) {
-            e2 = entries[spot].end.toString()
-          }
+            // Create a buffer between the actual dates and checking them, to keep from trying to convert a null value to string
+            let s1 = "";
+            let s2 = "";
+            let e1 = "";
+            let e2 = "";
+            if (entry.start) {
+              s1 = entry.start.toString()
+            }
+            if (entries[spot].start) {
+              s2 = entries[spot].start.toString()
+            }
+            if (entry.end) {
+              e1 = entry.end.toString()
+            }
+            if (entries[spot].end) {
+              e2 = entries[spot].end.toString()
+            }
 
-          // Check to see if the project, start date, etc. have been changed
-          if (entry.project != entries[spot].project || s1 != s2 || e1 != e2 || entry.billed != entries[spot].billed || entry.meta != entries[spot].meta) {
-            // Note that there is a change, for a later operation
-            change = true;
+            // Check to see if the project, start date, etc. have been changed
+            if (entry.project != entries[spot].project || s1 != s2 || e1 != e2 || entry.billed != entries[spot].billed || entry.meta != entries[spot].meta) {
+              // Note that there is a change, for a later operation
+              change = true;
 
-            // Does the new entry have a start date?
-            if (!isNaN(entry.start)) {
+              // Does the new entry have a start date?
+              if (!isNaN(entry.start)) {
 
-              // If so, we will edit it
-              console.log("Sync is requesting to edit " + spot);
-              this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, entry.meta, false);
+                // If so, we will edit it
+                console.log("Sync is requesting to edit " + spot);
+                this.editentrybyIndex(spot, entry.project, entry.start, entry.end, entry.billed, entry.meta, false);
 
+              } else {
+
+                // If not, we will delete it
+                console.log("Sync is requesting to remove " + spot);
+                this.removeentrybyIndex(spot, false, "[couldn't read start date]");
+              }
+
+              // If the setting to add projects from a log is set
+              if (addprojectsfromlog) {
+                // Check if the new item's project exists in projectsfromlog
+                if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
+                  // If not, add it, and we'll compare it to the existing projects later
+                  projectsfromlog.push(entry.project);
+                }
+              }
             } else {
-
-              // If not, we will delete it
-              console.log("Sync is requesting to remove " + spot);
-              this.removeentrybyIndex(spot, false, "[couldn't read start date]");
-            }
-
-            // If the setting to add projects from a log is set
-            if (addprojectsfromlog) {
-              // Check if the new item's project exists in projectsfromlog
-              if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
-                // If not, add it, and we'll compare it to the existing projects later
-                projectsfromlog.push(entry.project);
-              }
+              //console.log("No need to edit " + spot);
             }
           } else {
-            //console.log("No need to edit " + spot);
-          }
-        } else {
-          // If the current entry does not exist in the opened log,
+            // If the current entry does not exist in the opened log,
 
-          // If there is a start date
-          if (!isNaN(entry.start)) {
-            // This was an added entry. Add it
-            change = true;
-            console.log("Sync is requesting to add entry");
-            this.addentry(entry.project, entry.meta, entry.start, entry.end, entry.billed, false, entry.ID);
+            // If there is a start date
+            if (!isNaN(entry.start)) {
+              // This was an added entry. Add it
+              change = true;
+              console.log("Sync is requesting to add entry");
+              this.addentry(entry.project, entry.meta, entry.start, entry.end, entry.billed, false, entry.ID);
 
-            // This code is identical to what's above
-            if (addprojectsfromlog) {
-              if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
-                projectsfromlog.push(entry.project);
+              // This code is identical to what's above
+              if (addprojectsfromlog) {
+                if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
+                  projectsfromlog.push(entry.project);
+                }
               }
+            } else {
+              //console.log("Skipping a deleted line");
             }
-          } else {
-            //console.log("Skipping a deleted line");
+          }
+        }
+
+        if (!merge) {
+          // Perform QC check to see if anything was deleted entirely.
+          // Don't do this if merging files, or we would probably lose data
+          for (let i = 0; i < entries.length; i++) {
+            const foundItem = readentries.find(item => item.ID === entries[i].ID);
+            if (!foundItem && entries[i].start instanceof Date && !isNaN(entries[i].start)) {
+              // This is what it looks like if it just submissively deletes it rather than objecting
+              //this.removeentrybyIndex(i, false, "[couldn't find entry]");
+              let missingentry = entries[i];
+              console.log("Deletion occurred without warning: " + missingentry.ID);
+              missingentry.isfrom = "log";
+              missingentries.push(missingentry);
+            }
           }
         }
       }
+      if (change) {
+        try {
+          // Add any newfound projects
+          if (addprojectsfromlog && projectsfromlog.length > 0) {
+            this.addprojects(projectsfromlog);
 
-      if (!merge) {
-        // Perform QC check to see if anything was deleted entirely.
-        // Don't do this if merging files, or we would probably lose data
-        for (let i = 0; i < entries.length; i++) {
-          const foundItem = readentries.find(item => item.ID === entries[i].ID);
-          if (!foundItem) {
-            // This is what it looks like if it just submissively deletes it rather than objecting
-            console.log("Deletion occurred without warning: " + entries[i]);
-            this.removeentrybyIndex(i, false, "[couldn't find entry]");
-
-            // Instead, need to try once to see if it can be added again. But don't loop forever!
-            /*
-            -1. Do not remove the item
-            -2. Queue a merge after syncing
-            -3. Find the last backup
-            -4. Merge the last backup into this file, with the current file being the master
-            -5. Add to the number of times this has happened in the last two minutes. If more than once, give up
-            */
-
-            //syncproblem = true;
-
+            let projectString = "";
+            for (let i = 1; i < projects.length - 1; i++) {
+              projectString += projects[i] + "`";
+            }
+            projectString += projects[projects.length - 1];
+            this._settings.set_string("projects", projectString);
           }
-        }
-      }
-    }
-    if (change) {
-      try {
-        // Add any newfound projects
-        if (addprojectsfromlog && projectsfromlog.length > 0) {
-          this.addprojects(projectsfromlog);
 
-          let projectString = "";
-          for (let i = 1; i < projects.length - 1; i++) {
-            projectString += projects[i] + "`";
+          // Find out what project the current entry has, and set projectlist to match
+          if (this.currentTimer() != null) {
+            this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
           }
-          projectString += projects[projects.length - 1];
-          this._settings.set_string("projects", projectString);
+
+          // update the log
+          this.updatelog();
+
+        } catch (e) {
+          console.log(e);
         }
-
-        // Find out what project the current entry has, and set projectlist to match
-        if (this.currentTimer() != null) {
-          this.setprojectandmeta(entries[this.currentTimer()].project, entries[this.currentTimer()].meta);
-        }
-
-        // update the log
-        this.updatelog();
-
-      } catch (e) {
-        console.log(e);
+        this.updatetotals();
+      } else {
+        //console.log("No change needed");
       }
-      this.updatetotals();
-    } else {
-      //console.log("No change needed");
-    }
-    if (syncproblem) {
-      if (numberofsyncproblems <= 2) {
-        numberofsyncproblems += 1;
-        console.log("Trying " + numberofsyncproblems + "th time to correct a sync issue.");
-        let lastbackup = await this.findbackup();
-        //console.log(lastbackup);
-        await this.readfromfile(lastbackup, true); //seems like something is wrong in setentries()
-        await this.writelog();
+
+      if (missingentries.length > 0) {
+        console.log(missingentries.length + " missing entries found when syncing.");
+        // Create a dialog that asks the user if they want the missing entries back.
+        this.missingentriesdialog(missingentries);
       }
-    } else {
-      numberofsyncproblems = 0;
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -4451,7 +4444,6 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
     }
-    //console.log(readarray);
     return readarray;
   }
 
@@ -4513,6 +4505,8 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   async parsecsv(readarray, merge = false) {
+    try {
+    //console.log(readarray);
     if (readarray.length > 0) {
       // First, validate columns. Look for project, start, end, ID
       const columns = Object.keys(readarray[0]);
@@ -4583,11 +4577,12 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       for (let i = 0; i < readarray.length; i++) {
         let entry = readarray[i];
+        let deleteit = false;
 
         let endvalue = null;
         try {
           endvalue = new Date(entry[endColumn]);
-          if (isNaN(endvalue)) {
+          if (!(endvalue instanceof Date) || isNaN(endvalue)) {
             endvalue = null;
           }
         } catch (_) {}
@@ -4600,13 +4595,21 @@ export const TimeTrackerWindow = GObject.registerClass({
         let startvalue = null;
         try {
           const parsed = new Date(entry[startColumn]);
-          if (!isNaN(parsed)) {
+          if (parsed instanceof Date && !isNaN(parsed)) {
             startvalue = parsed;
           } else {
             startvalue = entry[startColumn];
+            if (endvalue == null) {
+              // If there's no parseable start or end date, just get rid of it
+              deleteit = true;
+            }
           }
         } catch (_) {
           startvalue = entry[startColumn];
+          if (endvalue == null) {
+            // If there's no parseable start or end date, just get rid of it
+            deleteit = true;
+          }
         }
 
         let billed = false;
@@ -4624,7 +4627,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         } catch (_) {}
 
         let ID = parseInt(entry[idColumn]);
-        let deleteit = false;
+        if (deleteit == false) {
           // Is the ID a proper number, or is there a duplicate? If not, then assign it an ID
           let now = new Date(); // In case a new ID needs to be made
           if (isNaN(ID)) {
@@ -4659,6 +4662,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               changestobemade = true; // Set the app to write the changes that it made
             }
           } // No else needed because everything else should just keep moving
+        }
 
         if (deleteit == false) {
           // Is there a duplicate ID still? If so, then change this ID
@@ -4700,6 +4704,9 @@ export const TimeTrackerWindow = GObject.registerClass({
       //console.log(sync_extraentries);
       //console.log(readentries[2100]);
       this.setentries(readentries, merge);
+    }
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -5288,6 +5295,261 @@ EXAMPLES
     });
     dialog.present(this);
     dialogsopen += 1;
+  } catch (e) {
+    console.log(e);
+  }
+}
+
+// This will compare with the last backup if nothing is specified
+async comparewithbackup(compareentries = entries.concat(sync_extraentries), backuppath = null) {
+  let missingentries = [];
+
+  if (backuppath == null) {
+    const lastbackup = await this.findbackup();
+    if (lastbackup) {
+      const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker']);
+      backuppath = filepath + "/" + lastbackup;
+    } else {
+      console.log("No previous backup to check against.");
+      return [];
+    }
+  }
+
+  console.log("Comparing against backup: " + backuppath);
+
+  // The following is a pared-down version of readfromfile() and parsecsv()
+  const file = Gio.File.new_for_path(backuppath);
+
+  // If the file exists
+  if (file.query_exists(null)) {
+
+    let contentsBytes;
+    try {
+      contentsBytes = (await file.load_contents_async(null))[0];
+    } catch (e) {
+      console.log(e, `Unable to open ${file.peek_path()}`);
+      return;
+    }
+    try {
+      if (!GLib.utf8_validate(contentsBytes)) {
+        console.log(`Invalid text encoding for ${file.peek_path()}`);
+        return;
+      }
+    } catch (error) {
+      //console.log("validate failed: " + error);
+    }
+
+    // Convert a UTF-8 bytes array into a String
+    const contentsText = new TextDecoder('utf-8').decode(contentsBytes);
+
+    let readarray = await this.readcsv(contentsText);
+
+    if (readarray.length > 0) {
+      // First, validate columns. Look for project, start, end, ID
+      const columns = Object.keys(readarray[0]);
+      let projectColumn = "";
+      let startColumn = "";
+      let endColumn = "";
+      let idColumn = "";
+      let billedColumn = "";
+      let metaColumn = "";
+
+      for (let i = 0; i < columns.length; i++) {
+        let column = columns[i];
+        if (projectColumn == "" && /project/i.test(column)) {
+          projectColumn = column;
+        } else if (startColumn == "" && /start/i.test(column)) {
+          startColumn = column;
+        } else if (endColumn == "" && /end/i.test(column)) {
+          endColumn = column;
+        } else if (idColumn == "" && /id/i.test(column)) {
+          idColumn = column;
+        } else if (billedColumn == "" && /billed/i.test(column)) {
+          billedColumn = column;
+        } else if (metaColumn == "" && /description/i.test(column)) {
+          metaColumn = column;
+        }
+      }
+
+      for (let i = 0; i < readarray.length; i++) {
+        let entry = readarray[i];
+
+        let endvalue = null;
+        try {
+          endvalue = new Date(entry[endColumn]);
+          if (isNaN(endvalue)) {
+            endvalue = null;
+          }
+        } catch (_) {}
+
+        let projvalue = "";
+        try {
+          projvalue = entry[projectColumn];
+        } catch (_) {}
+
+        let startvalue = null;
+        try {
+          const parsed = new Date(entry[startColumn]);
+          if (!isNaN(parsed)) {
+            startvalue = parsed;
+          }
+        } catch (_) {}
+
+        let billed = false;
+        try {
+          if (entry[billedColumn] == "true") {
+            billed = true;
+          }
+        } catch (_) {}
+
+        let meta = null;
+        try {
+          if (entry[metaColumn] != "") {
+            meta = entry[metaColumn];
+          }
+        } catch (_) {}
+
+        let ID = parseInt(entry[idColumn]);
+
+        if (!isNaN(ID) && startvalue != null && !compareentries.find(item => item.ID === ID)) {
+
+          let outputentry = {
+            start: startvalue,
+            end: endvalue,
+            project: projvalue,
+            ID: ID,
+            billed: billed,
+            meta: meta,
+          };
+          // Add unreadable columns
+          if (sync_extracolumns.length > 0) {
+            for (let j = 0; j < sync_extracolumns.length; j++) {
+              outputentry[sync_extracolumns[j]] = entry[sync_extracolumns[j]];
+            }
+          }
+
+          outputentry.isfrom = "backup";
+
+          missingentries.push(outputentry);
+
+        }
+      }
+    }
+  }
+  console.log(missingentries.length + " missing entries found.");
+  return missingentries;
+}
+
+async missingentriesdialog(missingentries) {
+  try {
+    if (missingentriesdialogq == false) {
+      missingentriesdialogq = true;
+      this.stopsynctimer();
+      const dialog = new Adw.AlertDialog({
+        heading: "Missing Entries Found",
+        body: "The following entries are missing from the current log file. Should Time Tracker forget them, export them and then forget them, or keep them?",
+        close_response: "cancel",
+      });
+      dialog.add_response("cancel", "Forget");
+      dialog.add_response("export", "Export & Forget");
+      dialog.add_response("merge", "Keep");
+      dialog.set_response_appearance("merge", Adw.ResponseAppearance.SUGGESTED);
+
+      const listbox = new Gtk.ListBox({
+        margin_top: 6,
+        margin_bottom: 6,
+      });
+      const style = listbox.get_style_context();
+      style.add_class("boxed-list");
+
+      for (let i = 0; i < missingentries.length; i++) {
+        const entry = missingentries[i];
+        const row = new Adw.ActionRow();
+
+        // Escape markup in project name
+        const escapeMarkup = (str) => str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+        row.title = escapeMarkup(entry.project || "(no project)");
+
+        let subtitle = "";
+        if (entry.start instanceof Date && !isNaN(entry.start)) {
+          subtitle += this.datetotext(entry.start, " ");
+        } else {
+          subtitle += entry.start || "Unknown start";
+        }
+        if (entry.end instanceof Date && !isNaN(entry.end)) {
+          subtitle += " → " + this.calcTimeDifference(entry.start, entry.end);
+        }
+        if (entry.meta) {
+          subtitle += "  " + escapeMarkup(entry.meta);
+        }
+        row.subtitle = subtitle;
+
+        listbox.append(row);
+      }
+
+      const scrolled = new Gtk.ScrolledWindow({
+        min_content_height: 100,
+        max_content_height: 300,
+      });
+      scrolled.set_child(listbox);
+      dialog.set_extra_child(scrolled);
+
+      dialog.connect("response", async (_, response_id) => {
+        dialogsopen -= 1;
+        if (response_id === "merge") {
+          for (const entry of missingentries) {
+            if (entry.start instanceof Date && !isNaN(entry.start) && entry.isfrom == 'backup') {
+              await this.addentry(entry.project, entry.meta, entry.start, entry.end, entry.billed, true, entry.ID);
+            }
+          }
+          //this._toast_overlay.add_toast(Adw.Toast.new(missingentries.length + " entries merged into log."));
+          this.writelog();
+        } else if (response_id === "export") {
+          await this.exporttocsv(missingentries);
+
+          for (const entry of missingentries) {
+            if (entry.isfrom == 'log') {
+              await this.removeentrybyID(entry.ID, false, "[couldn't find entry, user chose to delete]");
+            }
+          }
+          // Run a backup so that this message doesn't pop up again
+          await this.runbackups();
+        } else {
+          for (const entry of missingentries) {
+            if (entry.isfrom == 'log') {
+              await this.removeentrybyID(entry.ID, false, "[couldn't find entry, user chose to delete]");
+            }
+          }
+          // Run a backup so that this message doesn't pop up again
+          await this.runbackups();
+        }
+        missingentriesdialogq = false;
+        this.setsynctimer();
+      });
+
+      dialog.present(this);
+      dialogsopen += 1;
+    }
+  } catch (e) {
+    console.log(e);
+  }
+}
+
+async openDirectory(filepath, isdirectory = false) {
+  try {
+    const file = Gio.File.new_for_path(filepath);
+
+    if (!isdirectory) {
+      // Get the parent directory of the log file
+      file = file.get_parent();
+    }
+
+    Gtk.show_uri(this, file.get_uri(), Gdk.CURRENT_TIME);
   } catch (e) {
     console.log(e);
   }
