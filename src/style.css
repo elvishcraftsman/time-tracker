@@ -13,3 +13,12 @@
 .light-font {
   font-size: smaller;
 }
+.dark-button {
+  font-size: smaller;
+  font-weight: normal;
+  padding-left: 0px;
+  padding-right: 0px;
+}
+.popover-button {
+  font-weight: normal;
+}

@@ -62,10 +62,13 @@
                             </child>
                             <child>
                               <object class="GtkBox">
+                                <property name="orientation">1</property>
+                            <child>
+                              <object class="GtkBox">
                                 <property name="orientation">0</property>
                                 <property name="halign">3</property>
                                 <property name="margin-top">18</property>
-                                <property name="margin-bottom">30</property>
+                                <property name="margin-bottom">10</property>
                                 <property name="margin-start">24</property>
                                 <property name="margin-end">24</property>
                                 <child>
@@ -125,6 +128,35 @@
                                 </child>
                               </object>
                             </child>
+                            <child>
+                              <object class="GtkBox">
+                                <property name="orientation">0</property>
+                                <property name="width-request">190</property>
+                                <property name="margin-top">0</property>
+                                <property name="margin-bottom">10</property>
+                                <property name="margin-start">66</property>
+                                <property name="margin-end">66</property>
+                                <property name="halign">3</property>
+                                <property name="hexpand">true</property>
+                                <style>
+                                  <class name="linked"/>
+                                </style>
+                                <child>
+                                  <object class="GtkMenuButton" id="logbutton">
+                                    <property name="valign">3</property>
+                                    <property name="hexpand">true</property>
+                                    <property name="popover">log_popover</property>
+                                    <style>
+                                      <class name="flat"/>
+                                      <class name="dimmed"/>
+                                      <class name="dark-button"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                           </object>
                         </child>
                             <child>
@@ -349,7 +381,7 @@
       </object>
     </property>
   </template>
-    <menu id="primary_menu">
+  <menu id="primary_menu">
     <section>
       <item>
         <attribute name="label" translatable="yes">_Undo</attribute>
@@ -413,4 +445,100 @@
       </item>
     </section>
   </menu>
+<object class="GtkPopover" id="log_popover">
+  <property name="has-arrow">true</property>
+  <property name="child">
+    <object class="GtkBox">
+      <property name="orientation">1</property>
+      <child>
+        <object class="GtkBox">
+          <property name="orientation">0</property>
+          <property name="spacing">0</property>
+          <property name="margin-top">3</property>
+          <property name="margin-bottom">6</property>
+          <child>
+            <object class="GtkLabel" id="logpathlabel">
+              <property name="selectable">true</property>
+              <property name="wrap">true</property>
+              <property name="max-width-chars">20</property>
+              <property name="margin-start">18</property>
+            </object>
+          </child>
+          <child>
+            <object class="GtkBox">
+              <property name="halign">3</property>
+              <property name="spacing">6</property>
+              <child>
+                <object class="GtkButton" id="copylogpathbutton">
+                  <property name="icon-name">edit-copy-symbolic</property>
+                  <property name="tooltip-text">Copy Path</property>
+                  <property name="action-name">win.copypath</property>
+                  <style>
+                    <class name="flat"/>
+                  </style>
+                </object>
+              </child>
+            </object>
+          </child>
+        </object>
+      </child>
+      <child>
+        <object class="GtkSeparator"/>
+      </child>
+            <child>
+        <object class="GtkBox">
+          <property name="orientation">1</property>
+          <property name="margin-top">6</property>
+          <property name="margin-bottom">6</property>
+          <child>
+            <object class="GtkButton">
+              <property name="label" translatable="yes">New CSV Log File</property>
+              <property name="action-name">win.new</property>
+              <style>
+                <class name="flat"/>
+                <class name="popover-button"/>
+              </style>
+            </object>
+          </child>
+          <child>
+            <object class="GtkButton">
+              <property name="label" translatable="yes">Open CSV Log File</property>
+              <property name="action-name">win.open</property>
+              <style>
+                <class name="flat"/>
+                <class name="popover-button"/>
+              </style>
+            </object>
+          </child>
+          <child>
+            <object class="GtkSeparator">
+              <property name="margin-top">6</property>
+              <property name="margin-bottom">6</property>
+            </object>
+          </child>
+          <child>
+            <object class="GtkButton">
+              <property name="label" translatable="yes">Open in External Program</property>
+              <property name="action-name">win.opencsv</property>
+              <style>
+                <class name="flat"/>
+                <class name="popover-button"/>
+              </style>
+            </object>
+          </child>
+          <child>
+            <object class="GtkButton">
+              <property name="label" translatable="yes">Open Containing Folder</property>
+              <property name="action-name">win.openfolder</property>
+              <style>
+                <class name="flat"/>
+                <class name="popover-button"/>
+              </style>
+            </object>
+          </child>
+        </object>
+      </child>
+    </object>
+  </property>
+</object>
 </interface>

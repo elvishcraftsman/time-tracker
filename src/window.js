@@ -199,8 +199,8 @@ export const TimeTrackerWindow = GObject.registerClass({
   InternalChildren: ['status', 'startbutton', 'starticon', 'projectlist',
   'logbox', 'logcontrols', 'add', 'switcher_title', 'menu', 'toast_overlay',
   'customreport', 'reportcontrols', 'reportdata', 'logouter',
-  'metaentry', 'presetreports', 'stack', 'page1', 'page3',
-  'newbutton', 'openbutton', 'systembutton', 'logscroll'],
+  'metaentry', 'presetreports', 'stack', 'page1', 'page3', 'logpathlabel',
+  'newbutton', 'openbutton', 'systembutton', 'logscroll', 'logbutton'],
 }, class TimeTrackerWindow extends Adw.ApplicationWindow {
 
   // Connecting with the gsettings for Time Tracker
@@ -235,12 +235,15 @@ export const TimeTrackerWindow = GObject.registerClass({
     ampmformat = this._settings.get_boolean("ampmformat");
     sync_autotemplog = this._settings.get_boolean("autotemplog");
     logpath = this._settings.get_string("log");
+
     const projectsSetting = this._settings.get_string("projects");
     try {
       this.setprojects(projectsSetting.split("`"));
     } catch (_) {
       this.setprojects();
     }
+
+    this.setlogbuttontext(logpath);
 
     // Connecting the start/stop button with the proper function
     const startstopAction = new Gio.SimpleAction({name: 'start'});
@@ -299,6 +302,40 @@ export const TimeTrackerWindow = GObject.registerClass({
     const columnsAction = new Gio.SimpleAction({name: 'editcolumns'});
     columnsAction.connect('activate', () => this.editwriteonlycolumnsdialog());
     this.add_action(columnsAction);
+
+    // Connecting the "Open Log" button with the proper function
+    const opencsvAction = new Gio.SimpleAction({name: 'opencsv'});
+    opencsvAction.connect('activate', () => {
+      try {
+        Gio.AppInfo.launch_default_for_uri(`file://${logpath}`, null);
+      } catch (e) {
+        console.log("Failed to open file: " + e);
+        this._toast_overlay.add_toast(Adw.Toast.new("Couldn't open the file."));
+      }
+    });
+    this.add_action(opencsvAction);
+
+    // Connecting the "Open Containing Folder" button with the proper function
+    const openfolderAction = new Gio.SimpleAction({name: 'openfolder'});
+    openfolderAction.connect('activate', () => {
+      try {
+        const file = Gio.File.new_for_path(logpath);
+        const folder = file.get_parent();
+        Gio.AppInfo.launch_default_for_uri(folder.get_uri(), null);
+      } catch (e) {
+        console.log("Failed to open folder: " + e);
+        this._toast_overlay.add_toast(Adw.Toast.new("Couldn't open the folder."));
+      }
+    });
+    this.add_action(openfolderAction);
+
+    // Connecting the "Copy path" button with the proper function
+    const copypathAction = new Gio.SimpleAction({name: 'copypath'});
+    copypathAction.connect('activate', () => {
+      const clipboard = this.get_clipboard();
+      clipboard.set(logpath);
+    });
+    this.add_action(copypathAction);
 
     // Connecting the project model to projectlist
     this._projectlist.expression = listexpression;
@@ -660,6 +697,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           }
 
           this._settings.set_string("log", logpath);
+          this.setlogbuttontext(logpath);
 
           this.savedialog();
           if (insist) {
@@ -817,12 +855,24 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       // Set logpath to log1 and save
       logpath = log1;
+      this.setlogbuttontext(logpath);
       await this.writelog();
       // Start sync timer
       this.setsynctimer();
 
     } else {
       console.log("Cannot merge the same file");
+    }
+  }
+
+  async setlogbuttontext(path = logpath) {
+    try {
+      let text = "..." + path.slice(-20);
+      this._logbutton.set_label(text);
+      this._logbutton.set_tooltip_text(path);
+      this._logpathlabel.label = path;
+    } catch (e) {
+      console.log(e);
     }
   }
 
@@ -853,6 +903,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
           this.stopsynctimer()
           logpath = file.get_path();
+          this.setlogbuttontext(logpath);
           // Make sure it resets everything when reading the new file
           sync_firsttime = true;
           // Empty sync_extracolumns
@@ -4909,6 +4960,7 @@ export const TimeTrackerWindow = GObject.registerClass({
     const directory = Gio.File.new_for_path(filepath);
 
     logpath = filepath + "/log.csv";
+    this.setlogbuttontext(logpath);
     this._settings.set_string("log", logpath);
     const file = Gio.File.new_for_path(logpath);
     // If the file exists
@@ -4949,6 +5001,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         let today = new Date();
         //const ID = today.getTime();
 
+        /*
         let logname = logpath.split("/")[logpath.split("/").length - 1];
 
         let todaysname = "backup_" + today.getFullYear() +
@@ -4958,10 +5011,18 @@ export const TimeTrackerWindow = GObject.registerClass({
         await this.writelog(filepath + "/" + todaysname, null, false);
         console.log("Saved a backup");
         files.push(todaysname);
+        */
+        const hash = this.hashpath(logpath);
+        const timestamp = today.getTime();
+        const todaysname = `backup_${timestamp}_${hash}.csv`;
+        await this.writebackupindex(logpath);
+        await this.createfile(filepath + "/" + todaysname);
+        await this.writelog(filepath + "/" + todaysname, null, false);
 
 
         // Clean up extra backups according to numberofbackups
         if (deleteold) {
+          /*
           files.sort();
           let numberofbackups = 7;
           try {
@@ -4999,7 +5060,32 @@ export const TimeTrackerWindow = GObject.registerClass({
               }
             }
           }
+          */
+          files.sort();
+          let numberofbackups = 7;
+          try {
+            numberofbackups = this._settings.get_int("numberofbackups");
+          } catch (_) {}
 
+          const hash = this.hashpath(logpath);
+          const expectedSuffix = `_${hash}.csv`;
+
+          // Collect all backup files for this specific log
+          let backupfiles = files.filter(f => f.startsWith('backup_') && f.endsWith(expectedSuffix));
+
+          let filestodelete = [];
+
+          // Sort ascending by timestamp (already in filename as parts[1])
+          backupfiles.sort((a, b) => {
+            const ta = parseInt(a.split('_')[1]);
+            const tb = parseInt(b.split('_')[1]);
+            return ta - tb;
+          });
+
+          // Keep only the newest [numberofbackups] backups, delete the rest
+          if (backupfiles.length > numberofbackups) {
+            filestodelete = backupfiles.slice(0, backupfiles.length - numberofbackups);
+          }
           // Delete filestodelete
           if (filestodelete.length > 0) {
             for (let i = 0; i < filestodelete.length; i++) {
@@ -5031,6 +5117,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         files.sort();
         let count = 0;
 
+        /*
         let logname = logpath.split("/")[logpath.split("/").length - 1];
 
         for (let i = files.length - 1; i > -1; i--) {
@@ -5046,6 +5133,23 @@ export const TimeTrackerWindow = GObject.registerClass({
                 } else {
                   count++;
                 }
+              }
+            }
+          }
+        }
+        */
+        const hash = this.hashpath(logpath);
+        const expectedPrefix = `backup_`;
+        const expectedSuffix = `_${hash}.csv`;
+
+        for (let i = files.length - 1; i > -1; i--) {
+          if (files[i].startsWith(expectedPrefix) && files[i].endsWith(expectedSuffix)) {
+            const parts = files[i].split('_');
+            if (!isNaN(parseInt(parts[1]))) { // parts[1] is the timestamp
+              if (count == countfromlast) {
+                return files[i];
+              } else {
+                count++;
               }
             }
           }
@@ -5552,6 +5656,53 @@ async openDirectory(filepath, isdirectory = false) {
     Gtk.show_uri(this, file.get_uri(), Gdk.CURRENT_TIME);
   } catch (e) {
     console.log(e);
+  }
+}
+
+// Generate a short, stable identifier for a filepath
+hashpath(filepath) {
+  let hash = 0;
+  for (let i = 0; i < filepath.length; i++) {
+    hash = (Math.imul(31, hash) + filepath.charCodeAt(i)) | 0;
+  }
+  // Convert to unsigned hex
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// Write/update the index file that maps hashes to full paths
+async writebackupindex(filepath) {
+  try {
+    const indexpath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker/!backup_index.json']);
+    const indexfile = Gio.File.new_for_path(indexpath);
+    let index = {};
+
+    // Read existing index if it exists
+    if (indexfile.query_exists(null)) {
+      const contents = (await indexfile.load_contents_async(null))[0];
+      const text = new TextDecoder('utf-8').decode(contents);
+      try {
+        index = JSON.parse(text);
+      } catch (_) {}
+    }
+
+    // Preserve or set the instructions field
+    index["_instructions"] = [
+      "To find backups for a specific log file:",
+      "1. Look up the full path of your log file in this index to find its hash (the 8-character code on the left).",
+      "2. Backup files are named: backup_[timestamp]_[hash].csv",
+      "3. Find all files in this folder whose name ends in _[hash].csv — those are the backups for that log.",
+      "4. The timestamp in the filename is a Unix millisecond timestamp. The newest backup has the largest number."
+    ];
+
+    // Add or update this filepath's hash
+    const hash = this.hashpath(filepath);
+    index[hash] = filepath;
+
+    const text = JSON.stringify(index, null, 2);
+    const bytes = new GLib.Bytes(text);
+    await indexfile.replace_contents_bytes_async(bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+  } catch (e) {
+    console.log("Failed to write backup index: " + e);
   }
 }
 
