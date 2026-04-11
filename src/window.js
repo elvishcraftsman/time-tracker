@@ -925,8 +925,13 @@ export const TimeTrackerWindow = GObject.registerClass({
   }
 
   // Convert the log array into CSV format
-  async writelog(filepath = logpath, filteredentries = null, notify = true) {
+  async writelog(notify = true, filepath = logpath, filteredentries = null, literal = false) {
     try {
+      let writeentries = entries;
+      if (literal) {
+        writeentries = filteredentries;
+      }
+
       let entriesString = "Project,Start Time,End Time,Description,ID,Billed";
 
       if (sync_extracolumns.length > 0) {
@@ -942,7 +947,7 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       }
 
-      for (let i = 0; i < entries.length; i++) {
+      for (let i = 0; i < writeentries.length; i++) {
         let project = "";
         let start = "";
         let end = "";
@@ -950,21 +955,21 @@ export const TimeTrackerWindow = GObject.registerClass({
         let ID = 0;
         let billed = false;
         try {
-          let startDate = entries[i].start;
+          let startDate = writeentries[i].start;
           start = this.addquotes(startDate.toString());
-          let endDate = entries[i].end;
+          let endDate = writeentries[i].end;
           if (endDate) {
             end = this.addquotes(endDate.toString());
           } else {
             end = "";
           }
-          ID = entries[i].ID;
-          project = this.addquotes(entries[i].project);
-          if (entries[i].billed == true) {
+          ID = writeentries[i].ID;
+          project = this.addquotes(writeentries[i].project);
+          if (writeentries[i].billed == true) {
             billed = true;
           }
-          if (entries[i].meta != null) {
-            meta = this.addquotes(entries[i].meta);
+          if (writeentries[i].meta != null) {
+            meta = this.addquotes(writeentries[i].meta);
           }
         } catch (e) {
           console.log(e);
@@ -976,14 +981,14 @@ export const TimeTrackerWindow = GObject.registerClass({
           if (sync_extracolumns.length > 0) {
             for (let j = 0; j < sync_extracolumns.length; j++) {
               entriesString += ",";
-              if (entries[i][sync_extracolumns[j]]) {
-                entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
+              if (writeentries[i][sync_extracolumns[j]]) {
+                entriesString += this.addquotes(writeentries[i][sync_extracolumns[j]]);
               }
             }
           }
           if (sync_writeonly_columns.length > 0) {
             for (let j = 0; j < sync_writeonly_columns.length; j++) {
-              const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], entries[i]);
+              const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], writeentries[i]);
               entriesString += "," + this.addquotes(value);
             }
           }
@@ -996,14 +1001,14 @@ export const TimeTrackerWindow = GObject.registerClass({
             if (sync_extracolumns.length > 0) {
               for (let j = 0; j < sync_extracolumns.length; j++) {
                 entriesString += ",";
-                if (entries[i][sync_extracolumns[j]]) {
-                  entriesString += this.addquotes(entries[i][sync_extracolumns[j]]);
+                if (writeentries[i][sync_extracolumns[j]]) {
+                  entriesString += this.addquotes(writeentries[i][sync_extracolumns[j]]);
                 }
               }
             }
             if (sync_writeonly_columns.length > 0) {
               for (let j = 0; j < sync_writeonly_columns.length; j++) {
-                const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], entries[i]);
+                const value = this.formatWriteOnlyColumn(sync_writeonly_columns[j], writeentries[i]);
                 entriesString += "," + this.addquotes(value);
               }
             }
@@ -2522,7 +2527,8 @@ export const TimeTrackerWindow = GObject.registerClass({
     }
   }
 
-  async exporttocsv(filteredentries) {
+  async exporttocsv(filteredentries, literal = false) {
+    //console.log(filteredentries);
     try {
 
       const fileDialog = new Gtk.FileDialog();
@@ -2543,7 +2549,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       fileDialog.save(this, null, async (self, result) => {
         try {
           const file = self.save_finish(result);
-          console.log(file);
+          //console.log(file);
 
           if (file) {
             let path = file.get_path();
@@ -2557,7 +2563,7 @@ export const TimeTrackerWindow = GObject.registerClass({
               await this.createfile(path);
             }
             console.log("Exporting entries to " + path);
-            this.writelog(path, filteredentries);
+            this.writelog(true, path, filteredentries, literal);
           }
         } catch(_) {
           console.log("No file chosen");
@@ -4142,6 +4148,10 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       // Is this the first time this log file has been read since it was opened?
       if (sync_firsttime) {
+
+              if (merge) {
+                console.log("hi1");
+              }
         try {
           // Let later code know that changes are being made
           change = true;
@@ -4296,7 +4306,11 @@ export const TimeTrackerWindow = GObject.registerClass({
         }
       } else {
         // If we are reading and potentially editing an already opened log
-        // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries
+        // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries !!!!
+
+              if (merge) {
+                console.log("hi2");
+              }
         for (let i = 0; i < readentries.length; i++) {
           const entry = readentries[i];
 
@@ -4356,7 +4370,7 @@ export const TimeTrackerWindow = GObject.registerClass({
           } else {
             // If the current entry does not exist in the opened log,
 
-            // If there is a start date
+            // If there is a start date (otherwise, this is a deleted entry and should be ignored)
             if (!isNaN(entry.start)) {
               // This was an added entry. Add it
               change = true;
@@ -4369,8 +4383,6 @@ export const TimeTrackerWindow = GObject.registerClass({
                   projectsfromlog.push(entry.project);
                 }
               }
-            } else {
-              //console.log("Skipping a deleted line");
             }
           }
         }
@@ -4846,7 +4858,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
     const filepath = GLib.build_filenamev([GLib.get_home_dir(), '.local/share/time-tracker/' + todaysname]);
     await this.createfile(filepath);
-    await this.writelog(filepath);
+    await this.writelog(true, filepath);
 
     // Merge the temporary log into the original log
     await this.mergelogs(logpath, sync_templogpath);
@@ -5017,8 +5029,8 @@ export const TimeTrackerWindow = GObject.registerClass({
         const todaysname = `backup_${timestamp}_${hash}.csv`;
         await this.writebackupindex(logpath);
         await this.createfile(filepath + "/" + todaysname);
-        await this.writelog(filepath + "/" + todaysname, null, false);
-
+        await this.writelog(false, filepath + "/" + todaysname, null);
+        //files.push(todaysname);
 
         // Clean up extra backups according to numberofbackups
         if (deleteold) {
@@ -5073,13 +5085,24 @@ export const TimeTrackerWindow = GObject.registerClass({
           // Collect all backup files for this specific log
           let backupfiles = files.filter(f => f.startsWith('backup_') && f.endsWith(expectedSuffix));
 
-          let filestodelete = [];
+          // Get unique days from backup filenames, sorted ascending
+          let uniqueDays = [...new Set(
+            backupfiles.map(f => {
+              const ts = parseInt(f.split('_')[1]);
+              const d = new Date(ts);
+              return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+            })
+          )].sort();
 
-          // Sort ascending by timestamp (already in filename as parts[1])
-          backupfiles.sort((a, b) => {
-            const ta = parseInt(a.split('_')[1]);
-            const tb = parseInt(b.split('_')[1]);
-            return ta - tb;
+          // Keep the last [numberofbackups] unique days
+          let daysToKeep = new Set(uniqueDays.slice(-numberofbackups));
+
+          // Delete any backup not belonging to a kept day
+          let filestodelete = backupfiles.filter(f => {
+            const ts = parseInt(f.split('_')[1]);
+            const d = new Date(ts);
+            const day = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+            return !daysToKeep.has(day);
           });
 
           // Keep only the newest [numberofbackups] backups, delete the rest
@@ -5614,11 +5637,12 @@ async missingentriesdialog(missingentries) {
           //this._toast_overlay.add_toast(Adw.Toast.new(missingentries.length + " entries merged into log."));
           this.writelog();
         } else if (response_id === "export") {
-          await this.exporttocsv(missingentries);
+          //console.log(missingentries);
+          await this.exporttocsv(missingentries, true);
 
           for (const entry of missingentries) {
             if (entry.isfrom == 'log') {
-              await this.removeentrybyID(entry.ID, false, "[couldn't find entry, user chose to delete]");
+              await this.removeentrybyID(entry.ID, "[couldn't find entry--user chose to delete]");
             }
           }
           // Run a backup so that this message doesn't pop up again
@@ -5626,7 +5650,7 @@ async missingentriesdialog(missingentries) {
         } else {
           for (const entry of missingentries) {
             if (entry.isfrom == 'log') {
-              await this.removeentrybyID(entry.ID, false, "[couldn't find entry, user chose to delete]");
+              await this.removeentrybyID(entry.ID, "[couldn't find entry--user chose to delete]");
             }
           }
           // Run a backup so that this message doesn't pop up again
