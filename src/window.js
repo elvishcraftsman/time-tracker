@@ -4148,10 +4148,6 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       // Is this the first time this log file has been read since it was opened?
       if (sync_firsttime) {
-
-              if (merge) {
-                console.log("hi1");
-              }
         try {
           // Let later code know that changes are being made
           change = true;
@@ -4307,10 +4303,6 @@ export const TimeTrackerWindow = GObject.registerClass({
       } else {
         // If we are reading and potentially editing an already opened log
         // Note: this checks for changes in entries, but I don't think it checks for changes in sync_extraentries !!!!
-
-              if (merge) {
-                console.log("hi2");
-              }
         for (let i = 0; i < readentries.length; i++) {
           const entry = readentries[i];
 
@@ -4382,6 +4374,11 @@ export const TimeTrackerWindow = GObject.registerClass({
                 if (projects.indexOf(entry.project) == -1 && projectsfromlog.indexOf(entry.project) == -1) {
                   projectsfromlog.push(entry.project);
                 }
+              }
+            } else {
+              const deletedItem = sync_extraentries.find(item => item.ID === entry.ID);
+              if (deletedItem) {
+                // here's where to start
               }
             }
           }
