@@ -1232,6 +1232,7 @@ export const TimeTrackerWindow = GObject.registerClass({
 
       const projectlist2 = new Gtk.DropDown({
         enable_search: true,
+        search_match_mode: Gtk.StringFilterMatchMode.SUBSTRING,
       });
       projectlist2.expression = listexpression;
       projectlist2.model = model;
@@ -2912,6 +2913,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       })
       const projectlist2 = new Gtk.DropDown({
         enable_search: true,
+        search_match_mode: Gtk.StringFilterMatchMode.SUBSTRING,
       });
       projectlist2.expression = listexpression;
       const model2 = new Gio.ListStore({ item_type: project });
