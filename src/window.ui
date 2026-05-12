@@ -97,6 +97,7 @@
                                     <child>
                                       <object class="GtkDropDown" id="projectlist">
                                         <property name="enable-search">true</property>
+                                        <property name="search-match-mode">substring</property>
                                         <property name="model">
                                           <object class="GtkStringList"></object>
                                         </property>
