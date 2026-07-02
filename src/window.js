@@ -1602,11 +1602,7 @@ export const TimeTrackerWindow = GObject.registerClass({
             const entry = entries[index];
 
             // Escape special characters for Pango markup
-            const escapeMarkup = (str) => str
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;');
+            const escapeMarkup = (str) => GLib.markup_escape_text(str || "", -1);
 
             let description = "";
             if (entry.meta != null) {
@@ -2458,7 +2454,7 @@ export const TimeTrackerWindow = GObject.registerClass({
       margin_bottom: 3,
     });
     const label = new Gtk.Label();
-    label.set_markup("<b>" + title + ":</b>");
+    label.set_markup("<b>" + GLib.markup_escape_text(title || "", -1) + ":</b>");
     const button = new Gtk.Button({
       label: this.secondstoOutput(filter[0].duration),
       hexpand: true,
@@ -5593,11 +5589,7 @@ async missingentriesdialog(missingentries) {
         const row = new Adw.ActionRow();
 
         // Escape markup in project name
-        const escapeMarkup = (str) => str
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
+        const escapeMarkup = (str) => GLib.markup_escape_text(str || "", -1);
 
         row.title = escapeMarkup(entry.project || "(no project)");
 
